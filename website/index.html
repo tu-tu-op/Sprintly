@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevStrava Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Primary">
+      <div class="brand">
+        <img src="./assets/devstrava-mark.svg" alt="DevStrava" />
+        <div>
+          <strong>DevStrava</strong>
+          <span>Developer activity</span>
+        </div>
+      </div>
+
+      <nav class="nav-tabs" aria-label="Dashboard sections">
+        <button class="nav-tab active" data-view="dashboard" type="button">Dashboard</button>
+        <button class="nav-tab" data-view="history" type="button">History</button>
+        <button class="nav-tab" data-view="share" type="button">Share Card</button>
+        <button class="nav-tab" data-view="leaderboard" type="button">Leaderboard</button>
+        <button class="nav-tab" data-view="profile" type="button">Profile</button>
+      </nav>
+
+      <section class="account-panel" aria-label="Signed in account">
+        <div class="avatar" aria-hidden="true">AC</div>
+        <div>
+          <strong>Ava Chen</strong>
+          <span>Signed in locally</span>
+        </div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <section class="topbar" aria-label="Summary controls">
+        <div>
+          <p class="eyebrow">Private dashboard</p>
+          <h1 id="viewTitle">Dashboard</h1>
+        </div>
+        <div class="range-switcher" role="tablist" aria-label="Time range">
+          <button class="range-button active" data-range="week" type="button">Week</button>
+          <button class="range-button" data-range="month" type="button">Month</button>
+          <button class="range-button" data-range="all" type="button">All time</button>
+        </div>
+      </section>
+
+      <section class="view active" id="dashboard">
+        <div class="metric-grid" id="metricGrid"></div>
+        <div class="split-layout">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Session rhythm</h2>
+              <span id="rhythmLabel"></span>
+            </div>
+            <div class="bar-chart" id="barChart" aria-label="Recent session activity chart"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Style mix</h2>
+              <span id="styleLabel"></span>
+            </div>
+            <div class="style-meters" id="styleMeters"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="history">
+        <div class="panel">
+          <div class="panel-heading">
+            <h2>Session history</h2>
+            <span id="historyCount"></span>
+          </div>
+          <div class="history-list" id="historyList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="share">
+        <div class="share-layout">
+          <section class="share-card" aria-label="Share card preview">
+            <div class="share-card-top">
+              <div class="avatar large" aria-hidden="true">AC</div>
+              <div>
+                <span>DevStrava</span>
+                <h2 id="shareTitle">Deep Work Sprinter</h2>
+              </div>
+            </div>
+            <div class="share-score" id="shareScore">84%</div>
+            <div class="share-lines" id="shareLines"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Share controls</h2>
+              <span>Opt in only</span>
+            </div>
+            <div class="toggle-list" id="shareToggles"></div>
+            <button class="primary-action" id="generateCard" type="button">Generate public card</button>
+            <p class="inline-note" id="shareNote">Nothing is public until you generate a card.</p>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="leaderboard">
+        <div class="panel">
+          <div class="panel-heading">
+            <h2>Regional leaderboard</h2>
+            <select id="regionSelect" aria-label="Region">
+              <option value="India">India</option>
+              <option value="United States">United States</option>
+              <option value="Europe">Europe</option>
+              <option value="Global">Global</option>
+            </select>
+          </div>
+          <div class="leaderboard-list" id="leaderboardList"></div>
+        </div>
+      </section>
+
+      <section class="view" id="profile">
+        <div class="profile-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Public profile</h2>
+              <span id="profileStatus">Private</span>
+            </div>
+            <label class="switch-row">
+              <span>Public profile</span>
+              <input id="publicProfileToggle" type="checkbox" />
+            </label>
+            <label class="switch-row">
+              <span>Show region on leaderboard</span>
+              <input id="regionToggle" type="checkbox" checked />
+            </label>
+            <label class="switch-row">
+              <span>Allow weekly summary cards</span>
+              <input id="weeklyToggle" type="checkbox" />
+            </label>
+          </section>
+          <section class="panel">
+            <div class="panel-heading">
+              <h2>Private tracking</h2>
+              <span>Extension-owned</span>
+            </div>
+            <div class="privacy-list">
+              <span>Raw code stays local</span>
+              <span>Raw terminal commands stay local</span>
+              <span>Public sharing uses selected summary stats</span>
+              <span>Leaderboards use region and aggregate score only</span>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>
