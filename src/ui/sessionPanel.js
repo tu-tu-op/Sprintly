@@ -28,14 +28,16 @@ class SessionPanel {
 
   show() {
     this.sessionManager.notePanelShown();
+    // Always execute the view focus command — this is the correct VS Code API
+    // to open the panel container in the bottom panel region and reveal the
+    // webview tab inside it. If the view is already resolved and visible we
+    // also call view.show(true) to bring it into focus without toggling.
+    vscode.commands.executeCommand(`${SESSION_VIEW_ID}.focus`);
 
     if (this.view) {
       this.view.show(true);
       this._render();
-      return;
     }
-
-    vscode.commands.executeCommand(`${SESSION_VIEW_ID}.focus`);
   }
 
   /**
@@ -110,13 +112,13 @@ function getPanelHtml(state) {
     state.telemetry.counters.testFailures +
     state.telemetry.counters.quickRevisions +
     state.telemetry.counters.repeatedEdits;
-  const statRows = [
+  const statPills = [
     ['Time', formatDuration(state.telemetry.timing.activeSeconds || state.elapsedSeconds)],
     ['Edits', state.telemetry.counters.edits],
     ['Terminal', state.telemetry.counters.terminalCommands],
     ['Mistakes', mistakes]
   ].map(([label, value]) => {
-    return `<div class="stat"><span>${label}</span><strong>${value}</strong></div>`;
+    return `<div class="stat"><span class="stat-label">${label}</span><strong class="stat-val">${value}</strong></div>`;
   }).join('');
   const mainScore = Math.max(
     state.scores.scores.hardcore,
@@ -135,320 +137,308 @@ function getPanelHtml(state) {
   <style>
     :root {
       color-scheme: light dark;
-      --bg: var(--vscode-sideBar-background, #111318);
-      --text: var(--vscode-foreground, #eef3f7);
-      --muted: var(--vscode-descriptionForeground, #99a6b5);
-      --border: rgba(185, 205, 230, 0.14);
-      --glass: rgba(30, 36, 46, 0.72);
-      --glass-top: rgba(255, 255, 255, 0.08);
+      /* Use panel background tokens so the view truly inherits VS Code's panel chrome */
+      --bg: var(--vscode-panel-background, var(--vscode-editor-background, #1e1e1e));
+      --text: var(--vscode-foreground, #cccccc);
+      --muted: var(--vscode-descriptionForeground, #858585);
+      --border: var(--vscode-panel-border, rgba(128,128,128,0.20));
+      --input-bg: var(--vscode-input-background, rgba(255,255,255,0.06));
+      --btn-bg: var(--vscode-button-background, #0078d4);
+      --btn-fg: var(--vscode-button-foreground, #ffffff);
+      --btn-hover: var(--vscode-button-hoverBackground, #026ec1);
       --cyan: #8be8ff;
       --indigo: #8f9bff;
       --green: #87f5c4;
       --gold: #f6d98c;
-      --shadow: 0 14px 32px rgba(0, 0, 0, 0.26);
     }
 
-    * {
+    *, *::before, *::after {
       box-sizing: border-box;
-    }
-
-    body {
       margin: 0;
-      padding: 10px;
+      padding: 0;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
       color: var(--text);
-      background:
-        linear-gradient(145deg, rgba(143, 155, 255, 0.08), transparent 42%),
-        var(--bg);
-      font-family: var(--vscode-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
-      font-size: var(--vscode-font-size, 13px);
+      font-family: var(--vscode-font-family, "Segoe UI", system-ui, sans-serif);
+      font-size: var(--vscode-font-size, 12px);
+      line-height: 1.4;
+      overflow-x: hidden;
+      /* Prevent scrollbars on the body itself */
+      overflow-y: auto;
     }
 
-    .widget {
-      display: grid;
-      gap: 10px;
-      max-width: 300px;
-      margin: 0 auto;
-      padding: 12px;
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background:
-        linear-gradient(180deg, var(--glass-top), rgba(255, 255, 255, 0.025)),
-        var(--glass);
-      box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.10);
-      backdrop-filter: blur(16px) saturate(130%);
+    /* ─── Main layout: a compact vertical stack ─── */
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px 12px;
+      min-width: 0;
     }
 
-    .top,
-    .brand,
-    .state,
-    .summary-top,
-    .privacy,
-    .actions {
+    /* ─── Header row: brand + status badge ─── */
+    .header {
       display: flex;
       align-items: center;
-    }
-
-    .top,
-    .summary-top,
-    .actions {
-      justify-content: space-between;
-      gap: 10px;
-    }
-
-    .brand {
       gap: 8px;
-      min-width: 0;
     }
 
     .mark {
-      width: 24px;
-      height: 24px;
+      width: 22px;
+      height: 22px;
       display: grid;
       place-items: center;
       flex: 0 0 auto;
-      border-radius: 8px;
+      border-radius: 6px;
       color: #071014;
       background: linear-gradient(135deg, var(--cyan), var(--indigo));
       font-weight: 800;
-      box-shadow: 0 7px 18px rgba(139, 232, 255, 0.14);
+      font-size: 11px;
+      box-shadow: 0 2px 8px rgba(139, 232, 255, 0.20);
     }
 
-    .brand strong,
-    .persona strong,
-    .health strong,
-    .stat strong {
-      display: block;
-    }
-
-    .brand strong {
+    .brand-name {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      line-height: 1.1;
-      font-size: 13px;
-    }
-
-    .brand span,
-    .state,
-    .persona span,
-    .health span,
-    .privacy,
-    .secondary,
-    .stat span {
-      color: var(--muted);
-      font-size: 11px;
     }
 
     .state {
-      gap: 6px;
-      padding: 4px 8px;
-      border: 1px solid rgba(255, 255, 255, 0.10);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 7px;
+      border: 1px solid rgba(255,255,255,0.10);
       border-radius: 999px;
-      background: rgba(255, 255, 255, 0.045);
+      font-size: 10px;
+      color: var(--muted);
+      background: rgba(255,255,255,0.04);
       white-space: nowrap;
+      flex-shrink: 0;
     }
 
     .dot {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 50%;
       background: var(--muted);
+      flex-shrink: 0;
     }
 
-    .state.live .dot {
-      background: var(--green);
-      box-shadow: 0 0 0 4px rgba(135, 245, 196, 0.10);
+    .state.live  .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(135,245,196,0.15); }
+    .state.paused .dot { background: var(--gold);  box-shadow: 0 0 0 3px rgba(246,217,140,0.15); }
+
+    /* ─── Persona + score row ─── */
+    .persona-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255,255,255,0.03);
     }
 
-    .state.paused .dot {
-      background: var(--gold);
-      box-shadow: 0 0 0 4px rgba(246, 217, 140, 0.10);
-    }
-
-    .summary {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.10);
-      border-radius: 14px;
-      background:
-        linear-gradient(135deg, rgba(139, 232, 255, 0.11), transparent 48%),
-        rgba(255, 255, 255, 0.045);
-    }
-
-    .persona {
+    .persona-info {
+      flex: 1;
       min-width: 0;
     }
 
-    .persona strong {
+    .persona-label {
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .persona-name {
+      font-size: 12px;
+      font-weight: 600;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      max-width: 178px;
-      font-size: 18px;
-      line-height: 1.15;
     }
 
-    .badge {
-      width: 34px;
-      height: 34px;
-      display: grid;
-      place-items: center;
-      flex: 0 0 auto;
-      border-radius: 12px;
-      color: #071014;
-      background: linear-gradient(145deg, #d9fbff, #a8afff);
-      font-weight: 800;
+    .health-label {
+      font-size: 10px;
+      color: var(--muted);
+      text-align: right;
     }
 
-    .health {
-      display: grid;
-      grid-template-columns: 1fr auto;
-      align-items: end;
-      gap: 10px;
-    }
-
-    .health strong {
-      margin-top: 3px;
-      font-size: 15px;
-      line-height: 1.1;
+    .health-value {
+      font-size: 11px;
+      font-weight: 600;
+      text-align: right;
+      max-width: 90px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .ring {
       --score: ${mainScore};
-      width: 40px;
-      height: 40px;
+      width: 36px;
+      height: 36px;
+      flex-shrink: 0;
       display: grid;
       place-items: center;
       border-radius: 50%;
       background:
-        radial-gradient(circle at center, #141922 58%, transparent 59%),
-        conic-gradient(var(--cyan) calc(var(--score) * 1%), rgba(255, 255, 255, 0.12) 0);
-      font-size: 11px;
-      font-weight: 750;
+        radial-gradient(circle at center, var(--bg) 56%, transparent 57%),
+        conic-gradient(var(--cyan) calc(var(--score) * 1%), rgba(255,255,255,0.10) 0);
+      font-size: 10px;
+      font-weight: 700;
     }
 
+    /* ─── Stats row: 4 pill chips in a single horizontal strip ─── */
     .stats {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5px;
     }
 
     .stat {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 5px 4px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--input-bg);
       min-width: 0;
-      padding: 7px 8px;
-      border: 1px solid rgba(255, 255, 255, 0.07);
-      border-radius: 10px;
-      background: rgba(255, 255, 255, 0.035);
     }
 
-    .stat strong {
-      margin-top: 2px;
+    .stat-label {
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .stat-val {
       font-size: 12px;
+      font-weight: 700;
+      margin-top: 1px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
     }
 
-    .privacy {
-      gap: 6px;
-      padding: 1px 2px;
-    }
-
-    .privacy-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--green);
-    }
-
-    button {
-      font: inherit;
+    /* ─── Action row ─── */
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .primary {
-      height: 32px;
-      min-width: 118px;
-      border: 0;
-      border-radius: 10px;
-      color: #071014;
-      background: linear-gradient(135deg, var(--cyan), var(--indigo));
+      flex: 1;
+      height: 28px;
+      border: none;
+      border-radius: 6px;
+      color: var(--btn-fg);
+      background: var(--btn-bg);
       cursor: pointer;
-      font-weight: 750;
-      box-shadow: 0 9px 19px rgba(139, 232, 255, 0.14);
+      font: 600 11px var(--vscode-font-family, "Segoe UI", sans-serif);
+      letter-spacing: 0.02em;
+      transition: background 0.15s ease, filter 0.15s ease;
     }
+
+    .primary:hover  { background: var(--btn-hover); }
+    .primary:active { filter: brightness(0.92); transform: translateY(1px); }
 
     .secondary {
-      border: 0;
-      padding: 5px 1px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 10px;
+      height: 28px;
       background: transparent;
+      color: var(--muted);
       cursor: pointer;
+      font: 11px var(--vscode-font-family, "Segoe UI", sans-serif);
+      white-space: nowrap;
+      transition: color 0.15s ease, border-color 0.15s ease;
     }
 
-    .primary:hover,
-    .secondary:hover {
-      filter: brightness(1.08);
+    .secondary:hover  { color: var(--text); border-color: rgba(255,255,255,0.25); }
+    .secondary:active { transform: translateY(1px); }
+
+    /* ─── Privacy footer ─── */
+    .privacy {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 10px;
+      color: var(--muted);
     }
 
-    .primary:active,
-    .secondary:active {
-      transform: translateY(1px);
+    .privacy-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: var(--green);
+      flex-shrink: 0;
     }
   </style>
 </head>
 <body>
-  <main class="widget" aria-label="DevStrava compact session controls">
-    <section class="top">
-      <div class="brand">
-        <div class="mark">D</div>
-        <div>
-          <strong>DevStrava</strong>
-          <span>Control panel</span>
-        </div>
-      </div>
-      <div class="state ${statusClass}">
+  <div class="panel" role="region" aria-label="DevStrava compact session controls">
+
+    <!-- Header: brand mark + status -->
+    <div class="header">
+      <div class="mark" aria-hidden="true">D</div>
+      <span class="brand-name">DevStrava</span>
+      <div class="state ${statusClass}" aria-label="Recording status: ${statusLabel}">
         <span class="dot"></span>
         <span>${statusLabel}</span>
       </div>
-    </section>
+    </div>
 
-    <section class="summary">
-      <div class="summary-top">
-        <div class="persona">
-          <span>Current style</span>
-          <strong>${escapeHtml(state.scores.archetype.label)}</strong>
-        </div>
-        <div class="badge">${getPersonaInitials(state.scores.archetype.label)}</div>
+    <!-- Persona + score ring -->
+    <div class="persona-row">
+      <div class="persona-info">
+        <div class="persona-label">Style</div>
+        <div class="persona-name">${escapeHtml(state.scores.archetype.label)}</div>
       </div>
-      <div class="health">
-        <div>
-          <span>${escapeHtml(health.caption)}</span>
-          <strong>${escapeHtml(health.label)}</strong>
-        </div>
-        <div class="ring">${mainScore}</div>
+      <div style="text-align:right;min-width:0;">
+        <div class="health-label">${escapeHtml(health.caption)}</div>
+        <div class="health-value">${escapeHtml(health.label)}</div>
       </div>
-    </section>
+      <div class="ring" aria-label="Score ${mainScore}">${mainScore}</div>
+    </div>
 
-    <section class="stats" aria-label="Essential session stats">
-      ${statRows}
-    </section>
+    <!-- Stats chips -->
+    <div class="stats" aria-label="Session stats">
+      ${statPills}
+    </div>
 
+    <!-- Actions -->
+    <div class="actions">
+      <button class="primary" id="btn-primary" data-command="${action.command}">${action.label}</button>
+      <button class="secondary" id="btn-secondary" data-command="${secondaryAction.command}">${secondaryAction.label}</button>
+    </div>
+
+    <!-- Privacy notice -->
     <div class="privacy">
-      <span class="privacy-dot"></span>
+      <span class="privacy-dot" aria-hidden="true"></span>
       <span>Private until you share</span>
     </div>
 
-    <section class="actions">
-      <button class="primary" data-command="${action.command}">${action.label}</button>
-      <button class="secondary" data-command="${secondaryAction.command}">${secondaryAction.label}</button>
-    </section>
-  </main>
+  </div>
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    document.querySelectorAll('[data-command]').forEach((button) => {
-      button.addEventListener('click', () => {
-        vscode.postMessage({ command: button.dataset.command });
+    document.querySelectorAll('[data-command]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        vscode.postMessage({ command: btn.dataset.command });
       });
     });
   </script>

@@ -25,7 +25,7 @@ async function activate(context) {
   });
 
   const toggleStatsCommand = vscode.commands.registerCommand('devStrava.toggleStats', () => {
-    vscode.commands.executeCommand('devStravaStatsView.focus');
+    sessionPanel.show();
   });
 
   const openPanelCommand = vscode.commands.registerCommand('devStrava.openSessionPanel', () => {
