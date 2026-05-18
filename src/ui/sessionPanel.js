@@ -1,8 +1,23 @@
 const vscode = require('vscode');
 
-const SESSION_VIEW_ID = 'devStravaStatsView';
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-class SessionPanel {
+const VIEW_ID = 'sprintly.sessionStatsView';
+
+// ─── SessionStatsViewProvider ─────────────────────────────────────────────────
+
+/**
+ * Implements the WebviewViewProvider API so the session stats panel renders
+ * inside VS Code's bottom panel (Terminal / Output / Problems area) rather
+ * than as an editor tab.
+ *
+ * Registration in extension.js:
+ *   vscode.window.registerWebviewViewProvider(VIEW_ID, provider, {...})
+ *
+ * VS Code auto-generates the focus command:
+ *   `sprintly.sessionStatsView.focus`
+ */
+class SessionStatsViewProvider {
   /**
    * @param {vscode.Uri} extensionUri
    * @param {import('../session/sessionManager').SessionManager} sessionManager
@@ -10,116 +25,144 @@ class SessionPanel {
   constructor(extensionUri, sessionManager) {
     this.extensionUri = extensionUri;
     this.sessionManager = sessionManager;
-    this.view = undefined;
-    this.changeSubscription = this.sessionManager.onDidChange(() => {
+
+    /** @type {vscode.WebviewView | undefined} */
+    this._view = undefined;
+
+    // Re-render whenever session state changes
+    this._changeSubscription = this.sessionManager.onDidChange(() => {
       this._render();
     });
   }
 
-  register(context) {
-    const provider = vscode.window.registerWebviewViewProvider(SESSION_VIEW_ID, this, {
-      webviewOptions: {
-        retainContextWhenHidden: true
-      }
-    });
-
-    context.subscriptions.push(provider);
-  }
-
-  show() {
-    this.sessionManager.notePanelShown();
-    // Always execute the view focus command — this is the correct VS Code API
-    // to open the panel container in the bottom panel region and reveal the
-    // webview tab inside it. If the view is already resolved and visible we
-    // also call view.show(true) to bring it into focus without toggling.
-    vscode.commands.executeCommand(`${SESSION_VIEW_ID}.focus`);
-
-    if (this.view) {
-      this.view.show(true);
-      this._render();
-    }
-  }
+  // ── WebviewViewProvider interface ────────────────────────────────────────────
 
   /**
+   * Called by VS Code the first time this view is revealed (and after each
+   * deserialisation if retainContextWhenHidden is false).
+   *
    * @param {vscode.WebviewView} webviewView
    */
   resolveWebviewView(webviewView) {
-    this.view = webviewView;
-    this.view.webview.options = {
+    this._view = webviewView;
+
+    webviewView.webview.options = {
       enableScripts: true
     };
 
-    this.view.onDidDispose(() => {
-      this.view = undefined;
-    });
-
-    this.view.webview.onDidReceiveMessage(async (message) => {
-      if (message.command === 'openConsentPrompt') {
-        await vscode.commands.executeCommand('devStrava.showConsentPrompt');
-      }
-
-      if (message.command === 'pauseRecording') {
-        await vscode.commands.executeCommand('devStrava.pauseRecording');
-      }
-
-      if (message.command === 'resumeRecording') {
-        await vscode.commands.executeCommand('devStrava.resumeRecording');
-      }
-
-      if (message.command === 'stopRecording') {
-        await vscode.commands.executeCommand('devStrava.stopRecording');
-      }
-
-      if (message.command === 'shareSession') {
-        await vscode.window.showInformationMessage('DevStrava share cards live in the companion website.');
-      }
-
-      if (message.command === 'resetSession') {
-        await vscode.commands.executeCommand('devStrava.resetSession');
+    // Re-render whenever the view becomes visible again
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this._render();
       }
     });
 
+    // Clean up the reference if the view is disposed
+    webviewView.onDidDispose(() => {
+      this._view = undefined;
+    });
+
+    this._wireMessages();
     this._render();
   }
 
-  _render() {
-    if (!this.view) {
-      return;
-    }
+  // ── Public API ───────────────────────────────────────────────────────────────
 
-    const state = this.sessionManager.getSnapshot();
-    this.view.webview.html = getPanelHtml(state);
+  /**
+   * Focus the bottom panel and reveal this view.
+   * Called by the status bar icon click (sprintly.toggleStats).
+   */
+  show() {
+    this.sessionManager.notePanelShown();
+    vscode.commands.executeCommand(`${VIEW_ID}.focus`);
   }
 
   dispose() {
-    if (this.changeSubscription) {
-      this.changeSubscription.dispose();
+    if (this._changeSubscription) {
+      this._changeSubscription.dispose();
     }
+    // _view is owned by VS Code; we do not dispose it ourselves
+  }
 
-    this.view = undefined;
+  // ── Private ──────────────────────────────────────────────────────────────────
+
+  _wireMessages() {
+    if (!this._view) return;
+
+    this._view.webview.onDidReceiveMessage(async (message) => {
+      switch (message.command) {
+        case 'closePanel':
+          // Collapse the bottom panel entirely
+          await vscode.commands.executeCommand('workbench.action.closePanel');
+          break;
+
+        case 'openConsentPrompt':
+          await vscode.commands.executeCommand('sprintly.showConsentPrompt');
+          break;
+
+        case 'pauseRecording':
+          await vscode.commands.executeCommand('sprintly.pauseRecording');
+          break;
+
+        case 'resumeRecording':
+          await vscode.commands.executeCommand('sprintly.resumeRecording');
+          break;
+
+        case 'stopRecording':
+          await vscode.commands.executeCommand('sprintly.stopRecording');
+          break;
+
+        case 'resetSession':
+          await vscode.commands.executeCommand('sprintly.resetSession');
+          break;
+
+        case 'openHistory':
+          vscode.env.openExternal(vscode.Uri.parse('https://sprintly.app'));
+          break;
+
+        default:
+          break;
+      }
+    });
+  }
+
+  _render() {
+    if (!this._view || !this._view.visible) return;
+    const state = this.sessionManager.getSnapshot();
+    this._view.webview.html = getPopupHtml(state);
   }
 }
 
-function getPanelHtml(state) {
+// ─── HTML generation ──────────────────────────────────────────────────────────
+
+function getPopupHtml(state) {
   const nonce = String(Date.now());
-  const statusLabel = state.isRecording ? (state.isPaused ? 'Paused' : 'Live') : 'Ready';
-  const statusClass = state.isRecording ? (state.isPaused ? 'paused' : 'live') : 'idle';
+  const statusLabel = state.isRecording
+    ? state.isPaused ? 'Paused' : 'Live'
+    : 'Idle';
+  const statusClass = state.isRecording
+    ? state.isPaused ? 'paused' : 'live'
+    : 'idle';
+
   const action = getPrimaryAction(state);
   const secondaryAction = getSecondaryAction(state);
   const health = getSessionHealth(state);
-  const mistakes = state.telemetry.counters.failedRuns +
+  const mistakes =
+    state.telemetry.counters.failedRuns +
     state.telemetry.counters.terminalFailures +
     state.telemetry.counters.testFailures +
     state.telemetry.counters.quickRevisions +
     state.telemetry.counters.repeatedEdits;
+
   const statPills = [
     ['Time', formatDuration(state.telemetry.timing.activeSeconds || state.elapsedSeconds)],
     ['Edits', state.telemetry.counters.edits],
     ['Terminal', state.telemetry.counters.terminalCommands],
     ['Mistakes', mistakes]
-  ].map(([label, value]) => {
-    return `<div class="stat"><span class="stat-label">${label}</span><strong class="stat-val">${value}</strong></div>`;
-  }).join('');
+  ].map(([label, value]) =>
+    `<div class="stat"><span class="stat-label">${label}</span><strong class="stat-val">${value}</strong></div>`
+  ).join('');
+
   const mainScore = Math.max(
     state.scores.scores.hardcore,
     state.scores.scores.vibecoding,
@@ -133,169 +176,220 @@ function getPanelHtml(state) {
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DevStrava</title>
+  <title>Sprintly</title>
   <style>
+    /* ── Reset ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Tokens ── */
     :root {
-      color-scheme: light dark;
-      /* Use panel background tokens so the view truly inherits VS Code's panel chrome */
-      --bg: var(--vscode-panel-background, var(--vscode-editor-background, #1e1e1e));
-      --text: var(--vscode-foreground, #cccccc);
-      --muted: var(--vscode-descriptionForeground, #858585);
-      --border: var(--vscode-panel-border, rgba(128,128,128,0.20));
-      --input-bg: var(--vscode-input-background, rgba(255,255,255,0.06));
-      --btn-bg: var(--vscode-button-background, #0078d4);
-      --btn-fg: var(--vscode-button-foreground, #ffffff);
-      --btn-hover: var(--vscode-button-hoverBackground, #026ec1);
-      --cyan: #8be8ff;
+      --cyan:   #8be8ff;
       --indigo: #8f9bff;
-      --green: #87f5c4;
-      --gold: #f6d98c;
+      --green:  #87f5c4;
+      --gold:   #f6d98c;
+      --rose:   #ff7eb3;
+
+      --bg-base:    #0d1117;
+      --bg-card:    rgba(22, 27, 34, 0.92);
+      --bg-chip:    rgba(255, 255, 255, 0.05);
+      --border:     rgba(255, 255, 255, 0.08);
+      --border-hi:  rgba(255, 255, 255, 0.18);
+      --text:       #e6edf3;
+      --muted:      #7d8590;
+
+      --btn-bg:     #1f6feb;
+      --btn-hover:  #388bfd;
+      --btn-active: #1158c7;
+      --btn-fg:     #ffffff;
+
+      --shadow-card: 0 24px 64px rgba(0, 0, 0, 0.72), 0 4px 16px rgba(0, 0, 0, 0.4);
+      --shadow-glow: 0 0 0 1px rgba(139, 232, 255, 0.12);
+
+      --radius-card: 14px;
+      --radius-chip: 8px;
+      --radius-pill: 999px;
     }
 
-    *, *::before, *::after {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
+    /* ── Page shell — fills the webview frame, centres the card ── */
     html, body {
       height: 100%;
-      background: var(--bg);
+      background: var(--bg-base);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 20px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 12px;
       color: var(--text);
-      font-family: var(--vscode-font-family, "Segoe UI", system-ui, sans-serif);
-      font-size: var(--vscode-font-size, 12px);
-      line-height: 1.4;
-      overflow-x: hidden;
-      /* Prevent scrollbars on the body itself */
-      overflow-y: auto;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ─── Main layout: a compact vertical stack ─── */
-    .panel {
+    /* ── Floating card ── */
+    .card {
+      width: 100%;
+      max-width: 320px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-card);
+      box-shadow: var(--shadow-card), var(--shadow-glow);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      overflow: hidden;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding: 10px 12px;
-      min-width: 0;
+      gap: 0;
+      animation: popIn 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     }
 
-    /* ─── Header row: brand + status badge ─── */
+    @keyframes popIn {
+      from { opacity: 0; transform: scale(0.94) translateY(-6px); }
+      to   { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    /* ── Inner padding wrapper ── */
+    .inner {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 14px 12px;
+    }
+
+    /* ── Header: logo · brand · status · close ── */
     .header {
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
-    .mark {
-      width: 22px;
-      height: 22px;
+    .logo {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--cyan) 0%, var(--indigo) 100%);
       display: grid;
       place-items: center;
-      flex: 0 0 auto;
-      border-radius: 6px;
-      color: #071014;
-      background: linear-gradient(135deg, var(--cyan), var(--indigo));
       font-weight: 800;
       font-size: 11px;
-      box-shadow: 0 2px 8px rgba(139, 232, 255, 0.20);
+      color: #07101a;
+      box-shadow: 0 2px 8px rgba(139, 232, 255, 0.30);
+      letter-spacing: -0.5px;
     }
 
-    .brand-name {
-      font-size: 12px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
+    .brand {
       flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+      color: var(--text);
     }
 
-    .state {
+    .status-badge {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      padding: 2px 7px;
-      border: 1px solid rgba(255,255,255,0.10);
-      border-radius: 999px;
+      padding: 2px 8px 2px 6px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-pill);
       font-size: 10px;
       color: var(--muted);
-      background: rgba(255,255,255,0.04);
+      background: var(--bg-chip);
       white-space: nowrap;
-      flex-shrink: 0;
+      transition: border-color 0.2s;
     }
+    .status-badge.live   { border-color: rgba(135, 245, 196, 0.30); color: var(--green); }
+    .status-badge.paused { border-color: rgba(246, 217, 140, 0.30); color: var(--gold);  }
 
     .dot {
       width: 6px;
       height: 6px;
       border-radius: 50%;
-      background: var(--muted);
+      background: currentColor;
       flex-shrink: 0;
     }
+    .status-badge.live   .dot { box-shadow: 0 0 0 3px rgba(135, 245, 196, 0.18); animation: pulse 2s infinite; }
+    .status-badge.paused .dot { box-shadow: 0 0 0 3px rgba(246, 217, 140, 0.18); }
 
-    .state.live  .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(135,245,196,0.15); }
-    .state.paused .dot { background: var(--gold);  box-shadow: 0 0 0 3px rgba(246,217,140,0.15); }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.5; }
+    }
 
-    /* ─── Persona + score row ─── */
+    .close-btn {
+      width: 22px;
+      height: 22px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      display: grid;
+      place-items: center;
+      font-size: 14px;
+      line-height: 1;
+      transition: background 0.15s, color 0.15s;
+      flex-shrink: 0;
+    }
+    .close-btn:hover  { background: rgba(255,255,255,0.08); color: var(--text); }
+    .close-btn:active { background: rgba(255,255,255,0.04); }
+
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 0 14px;
+    }
+
+    /* ── Persona / health row ── */
     .persona-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 7px 10px;
+      gap: 10px;
+      padding: 9px 10px;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      background: rgba(255,255,255,0.03);
+      border-radius: var(--radius-chip);
+      background: var(--bg-chip);
     }
 
-    .persona-info {
-      flex: 1;
-      min-width: 0;
-    }
-
-    .persona-label {
-      font-size: 10px;
-      color: var(--muted);
-    }
-
+    .persona-info { flex: 1; min-width: 0; }
+    .persona-label { font-size: 10px; color: var(--muted); margin-bottom: 1px; }
     .persona-name {
       font-size: 12px;
       font-weight: 600;
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
     }
 
+    .health-col { text-align: right; min-width: 0; flex-shrink: 0; }
+    .health-caption { font-size: 10px; color: var(--muted); margin-bottom: 1px; }
     .health-label {
-      font-size: 10px;
-      color: var(--muted);
-      text-align: right;
-    }
-
-    .health-value {
       font-size: 11px;
       font-weight: 600;
-      text-align: right;
-      max-width: 90px;
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
+      max-width: 90px;
     }
 
-    .ring {
-      --score: ${mainScore};
-      width: 36px;
-      height: 36px;
+    .score-ring {
+      --pct: ${mainScore};
+      width: 38px;
+      height: 38px;
       flex-shrink: 0;
-      display: grid;
-      place-items: center;
       border-radius: 50%;
       background:
-        radial-gradient(circle at center, var(--bg) 56%, transparent 57%),
-        conic-gradient(var(--cyan) calc(var(--score) * 1%), rgba(255,255,255,0.10) 0);
+        radial-gradient(circle at center, var(--bg-base) 52%, transparent 53%),
+        conic-gradient(var(--cyan) calc(var(--pct) * 1%), rgba(255,255,255,0.08) 0);
+      display: grid;
+      place-items: center;
       font-size: 10px;
-      font-weight: 700;
+      font-weight: 800;
+      color: var(--cyan);
     }
 
-    /* ─── Stats row: 4 pill chips in a single horizontal strip ─── */
+    /* ── Stats row ── */
     .stats {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -306,72 +400,73 @@ function getPanelHtml(state) {
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 5px 4px;
+      padding: 6px 4px 5px;
       border: 1px solid var(--border);
-      border-radius: 6px;
-      background: var(--input-bg);
-      min-width: 0;
+      border-radius: var(--radius-chip);
+      background: var(--bg-chip);
+      gap: 2px;
+      transition: border-color 0.15s;
     }
+    .stat:hover { border-color: var(--border-hi); }
 
     .stat-label {
-      font-size: 10px;
+      font-size: 9px;
       color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
       white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
     }
-
     .stat-val {
-      font-size: 12px;
+      font-size: 13px;
       font-weight: 700;
-      margin-top: 1px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 100%;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
     }
 
-    /* ─── Action row ─── */
+    /* ── Actions ── */
     .actions {
       display: flex;
+      gap: 7px;
+    }
+
+    .btn-primary {
+      flex: 1;
+      height: 30px;
+      border: none;
+      border-radius: 8px;
+      background: var(--btn-bg);
+      color: var(--btn-fg);
+      font: 600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      letter-spacing: 0.02em;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-primary:hover  { background: var(--btn-hover); }
+    .btn-primary:active { background: var(--btn-active); transform: translateY(1px); }
+
+    .btn-secondary {
+      height: 30px;
+      padding: 0 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font: 11px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s, transform 0.1s;
+    }
+    .btn-secondary:hover  { color: var(--text); border-color: var(--border-hi); }
+    .btn-secondary:active { transform: translateY(1px); }
+
+    /* ── Footer ── */
+    .footer {
+      display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
     }
 
-    .primary {
-      flex: 1;
-      height: 28px;
-      border: none;
-      border-radius: 6px;
-      color: var(--btn-fg);
-      background: var(--btn-bg);
-      cursor: pointer;
-      font: 600 11px var(--vscode-font-family, "Segoe UI", sans-serif);
-      letter-spacing: 0.02em;
-      transition: background 0.15s ease, filter 0.15s ease;
-    }
-
-    .primary:hover  { background: var(--btn-hover); }
-    .primary:active { filter: brightness(0.92); transform: translateY(1px); }
-
-    .secondary {
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 0 10px;
-      height: 28px;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      font: 11px var(--vscode-font-family, "Segoe UI", sans-serif);
-      white-space: nowrap;
-      transition: color 0.15s ease, border-color 0.15s ease;
-    }
-
-    .secondary:hover  { color: var(--text); border-color: rgba(255,255,255,0.25); }
-    .secondary:active { transform: translateY(1px); }
-
-    /* ─── Privacy footer ─── */
     .privacy {
       display: flex;
       align-items: center;
@@ -379,171 +474,140 @@ function getPanelHtml(state) {
       font-size: 10px;
       color: var(--muted);
     }
-
     .privacy-dot {
       width: 5px;
       height: 5px;
       border-radius: 50%;
       background: var(--green);
       flex-shrink: 0;
+      box-shadow: 0 0 4px rgba(135, 245, 196, 0.5);
     }
+
+    .history-link {
+      font-size: 10px;
+      color: var(--muted);
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 0;
+      transition: color 0.15s;
+    }
+    .history-link:hover { color: var(--cyan); }
   </style>
 </head>
 <body>
-  <div class="panel" role="region" aria-label="DevStrava compact session controls">
+  <div class="card" role="dialog" aria-label="Sprintly session controls">
 
-    <!-- Header: brand mark + status -->
-    <div class="header">
-      <div class="mark" aria-hidden="true">D</div>
-      <span class="brand-name">DevStrava</span>
-      <div class="state ${statusClass}" aria-label="Recording status: ${statusLabel}">
-        <span class="dot"></span>
-        <span>${statusLabel}</span>
+    <div class="inner">
+
+      <!-- Header -->
+      <div class="header">
+        <div class="logo" aria-hidden="true">SP</div>
+        <span class="brand">Sprintly</span>
+        <div class="status-badge ${statusClass}" aria-label="Status: ${statusLabel}">
+          <span class="dot"></span>
+          <span>${statusLabel}</span>
+        </div>
+        <button class="close-btn" id="btn-close" aria-label="Close panel" title="Close (Esc)">✕</button>
       </div>
-    </div>
 
-    <!-- Persona + score ring -->
-    <div class="persona-row">
-      <div class="persona-info">
-        <div class="persona-label">Style</div>
-        <div class="persona-name">${escapeHtml(state.scores.archetype.label)}</div>
+      <!-- Persona + score ring -->
+      <div class="persona-row">
+        <div class="persona-info">
+          <div class="persona-label">Style</div>
+          <div class="persona-name">${escapeHtml(state.scores.archetype.label)}</div>
+        </div>
+        <div class="health-col">
+          <div class="health-caption">${escapeHtml(health.caption)}</div>
+          <div class="health-label">${escapeHtml(health.label)}</div>
+        </div>
+        <div class="score-ring" aria-label="Score ${mainScore}">${mainScore}</div>
       </div>
-      <div style="text-align:right;min-width:0;">
-        <div class="health-label">${escapeHtml(health.caption)}</div>
-        <div class="health-value">${escapeHtml(health.label)}</div>
+
+      <!-- Stats chips -->
+      <div class="stats" aria-label="Session stats">
+        ${statPills}
       </div>
-      <div class="ring" aria-label="Score ${mainScore}">${mainScore}</div>
-    </div>
 
-    <!-- Stats chips -->
-    <div class="stats" aria-label="Session stats">
-      ${statPills}
-    </div>
+      <!-- Actions -->
+      <div class="actions">
+        <button class="btn-primary" id="btn-primary" data-command="${action.command}">${action.label}</button>
+        <button class="btn-secondary" id="btn-secondary" data-command="${secondaryAction.command}">${secondaryAction.label}</button>
+      </div>
 
-    <!-- Actions -->
-    <div class="actions">
-      <button class="primary" id="btn-primary" data-command="${action.command}">${action.label}</button>
-      <button class="secondary" id="btn-secondary" data-command="${secondaryAction.command}">${secondaryAction.label}</button>
-    </div>
+      <!-- Footer -->
+      <div class="footer">
+        <div class="privacy">
+          <span class="privacy-dot" aria-hidden="true"></span>
+          <span>Private until you share</span>
+        </div>
+        <button class="history-link" id="btn-history" data-command="openHistory">View history ↗</button>
+      </div>
 
-    <!-- Privacy notice -->
-    <div class="privacy">
-      <span class="privacy-dot" aria-hidden="true"></span>
-      <span>Private until you share</span>
-    </div>
-
-  </div>
+    </div><!-- /.inner -->
+  </div><!-- /.card -->
 
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
-    document.querySelectorAll('[data-command]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        vscode.postMessage({ command: btn.dataset.command });
+
+    // Button click handlers
+    document.querySelectorAll('[data-command]').forEach(function(el) {
+      el.addEventListener('click', function() {
+        vscode.postMessage({ command: el.dataset.command });
       });
+    });
+
+    // Close button
+    document.getElementById('btn-close').addEventListener('click', function() {
+      vscode.postMessage({ command: 'closePanel' });
+    });
+
+    // Escape key dismisses the panel
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        vscode.postMessage({ command: 'closePanel' });
+      }
     });
   </script>
 </body>
 </html>`;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function formatDuration(totalSeconds) {
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-
+  if (hours > 0)   return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
   return `${seconds}s`;
 }
 
 function getPrimaryAction(state) {
-  if (!state.isRecording) {
-    return {
-      label: 'Start',
-      command: 'openConsentPrompt'
-    };
-  }
-
-  if (state.isPaused) {
-    return {
-      label: 'Resume',
-      command: 'resumeRecording'
-    };
-  }
-
-  return {
-    label: 'Pause',
-    command: 'pauseRecording'
-  };
+  if (!state.isRecording) return { label: 'Start Recording', command: 'openConsentPrompt' };
+  if (state.isPaused)     return { label: 'Resume', command: 'resumeRecording' };
+  return { label: 'Pause', command: 'pauseRecording' };
 }
 
 function getSecondaryAction(state) {
-  if (state.isRecording) {
-    return {
-      label: 'Stop',
-      command: 'stopRecording'
-    };
-  }
-
-  return {
-    label: 'Share',
-    command: 'shareSession'
-  };
+  if (state.isRecording) return { label: 'Stop', command: 'stopRecording' };
+  return { label: 'Reset', command: 'resetSession' };
 }
 
 function getSessionHealth(state) {
-  const mistakes = state.telemetry.counters.failedRuns +
+  const mistakes =
+    state.telemetry.counters.failedRuns +
     state.telemetry.counters.terminalFailures +
     state.telemetry.counters.testFailures;
   const rhythm = state.scores.scores.rhythm;
 
-  if (!state.isRecording) {
-    return {
-      label: 'Ready to record',
-      caption: 'Awaiting consent'
-    };
-  }
-
-  if (state.isPaused) {
-    return {
-      label: 'Paused cleanly',
-      caption: 'Focus preserved'
-    };
-  }
-
-  if (mistakes >= 5) {
-    return {
-      label: 'Debug push',
-      caption: 'Recovery mode'
-    };
-  }
-
-  if (rhythm >= 70) {
-    return {
-      label: 'Smooth rhythm',
-      caption: 'Session health'
-    };
-  }
-
-  return {
-    label: 'In motion',
-    caption: 'Session health'
-  };
-}
-
-function getPersonaInitials(label) {
-  return label
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word.charAt(0).toUpperCase())
-    .join('');
+  if (!state.isRecording) return { label: 'Ready to record', caption: 'Awaiting consent' };
+  if (state.isPaused)     return { label: 'Paused cleanly',   caption: 'Focus preserved' };
+  if (mistakes >= 5)      return { label: 'Debug push',       caption: 'Recovery mode'   };
+  if (rhythm >= 70)       return { label: 'Smooth rhythm',    caption: 'Session health'  };
+  return { label: 'In motion', caption: 'Session health' };
 }
 
 function escapeHtml(value) {
@@ -555,7 +619,6 @@ function escapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
-module.exports = {
-  SessionPanel,
-  SESSION_VIEW_ID
-};
+// ─── Exports ──────────────────────────────────────────────────────────────────
+
+module.exports = { SessionStatsViewProvider };

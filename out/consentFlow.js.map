@@ -1,0 +1,1 @@
+{"version":3,"file":"consentFlow.js","sourceRoot":"","sources":["../src/consentFlow.ts"],"names":[],"mappings":";;AAEA,wCAWC;AAbD,iCAAiC;AAE1B,KAAK,UAAU,cAAc,CAClC,OAAgC,EAChC,QAAoB;IAEpB,MAAM,MAAM,GAAG,MAAM,MAAM,CAAC,MAAM,CAAC,sBAAsB,CACvD,mDAAmD,EACnD,EAAE,KAAK,EAAE,KAAK,EAAE,EAChB,iBAAiB,EACjB,SAAS,CACV,CAAC;IACF,IAAI,MAAM,KAAK,iBAAiB;QAAE,QAAQ,EAAE,CAAC;AAC/C,CAAC"}

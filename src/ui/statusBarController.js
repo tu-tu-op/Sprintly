@@ -11,7 +11,7 @@ class StatusBarController {
       this._render(state);
     });
 
-    this.sessionControlItem.command = 'devStrava.toggleStats';
+    this.sessionControlItem.command = 'sprintly.toggleStats';
 
     this.sessionControlItem.show();
     this._render(this.sessionManager.getSnapshot());
@@ -19,9 +19,9 @@ class StatusBarController {
 
   _render(state) {
     this.sessionControlItem.text = state.isRecording && !state.isPaused
-      ? '$(radio-tower) DevStrava'
-      : '$(circle-large-outline) DevStrava';
-    this.sessionControlItem.name = 'DevStrava Control Panel';
+      ? '$(radio-tower) Sprintly'
+      : '$(circle-large-outline) Sprintly';
+    this.sessionControlItem.name = 'Sprintly Control Panel';
     this.sessionControlItem.tooltip = getRecordingTooltip(state);
   }
 
@@ -36,14 +36,14 @@ class StatusBarController {
 
 function getRecordingTooltip(state) {
   if (state.isRecording && state.isPaused) {
-    return 'DevStrava recording is paused. Click to open the compact control panel.';
+    return 'Sprintly recording is paused. Click to open the compact control panel.';
   }
 
   if (state.isRecording) {
-    return `Open DevStrava controls. ${state.scores.archetype.label}: ${state.scores.scores.hardcore}% hardcore.`;
+    return `Open Sprintly controls. ${state.scores.archetype.label}: ${state.scores.scores.hardcore}% hardcore.`;
   }
 
-  return 'DevStrava is idle. Click to open the compact control panel.';
+  return 'Sprintly is idle. Click to open the compact control panel.';
 }
 
 module.exports = {

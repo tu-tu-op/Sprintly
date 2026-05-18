@@ -1,4 +1,4 @@
-# DevStrava Commands
+# Sprintly Commands
 
 Common commands for working on this project.
 
@@ -33,18 +33,18 @@ Open this folder in VS Code:
 code C:\Projects\Sprintly
 ```
 
-Then open the Run and Debug panel and choose `Run DevStrava Extension`, or press `F5`, to launch an Extension Development Host.
+Then open the Run and Debug panel and choose `Run Sprintly Extension`, or press `F5`, to launch an Extension Development Host.
 
 Useful commands inside the Extension Development Host:
 
 ```text
-DevStrava: Session Controls
-DevStrava: Toggle Stats
-DevStrava: Open Compact Control Panel
-DevStrava: Pause Recording
-DevStrava: Resume Recording
-DevStrava: Stop Recording
-DevStrava: Reset Current Session
+Sprintly: Session Controls
+Sprintly: Toggle Stats
+Sprintly: Open Compact Control Panel
+Sprintly: Pause Recording
+Sprintly: Resume Recording
+Sprintly: Stop Recording
+Sprintly: Reset Current Session
 ```
 
 ## Run The Website

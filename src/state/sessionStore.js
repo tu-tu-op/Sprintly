@@ -1,5 +1,5 @@
-const STORED_CONSENT_KEY = 'devStrava.storedConsentStatus';
-const SESSION_SUMMARIES_KEY = 'devStrava.sessionSummaries';
+const STORED_CONSENT_KEY = 'sprintly.storedConsentStatus';
+const SESSION_SUMMARIES_KEY = 'sprintly.sessionSummaries';
 const MAX_LOCAL_SUMMARIES = 25;
 
 class SessionStore {

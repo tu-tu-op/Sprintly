@@ -1,6 +1,6 @@
-# DevStrava
+# Sprintly
 
-DevStrava is a consent-first VS Code extension foundation for a "Strava for developers" experience.
+Sprintly is a consent-first VS Code extension foundation for a "Strava for developers" experience.
 
 ## What Is Included
 
@@ -27,13 +27,13 @@ It does not store raw code, raw terminal command text, or file paths.
 
 ## Commands
 
-- `DevStrava: Session Controls`
-- `DevStrava: Toggle Stats`
-- `DevStrava: Open Compact Control Panel`
-- `DevStrava: Pause Recording`
-- `DevStrava: Resume Recording`
-- `DevStrava: Stop Recording`
-- `DevStrava: Reset Current Session`
+- `Sprintly: Session Controls`
+- `Sprintly: Toggle Stats`
+- `Sprintly: Open Compact Control Panel`
+- `Sprintly: Pause Recording`
+- `Sprintly: Resume Recording`
+- `Sprintly: Stop Recording`
+- `Sprintly: Reset Current Session`
 
 ## Website
 

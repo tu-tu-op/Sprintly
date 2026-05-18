@@ -1,85 +1,45 @@
 {
-  "name": "devstrava",
-  "displayName": "DevStrava",
-  "description": "Consent-first VS Code session tracking foundation for DevStrava.",
+  "name": "sprintly",
+  "displayName": "Sprintly",
+  "description": "Strava for developers — track your coding sessions.",
   "version": "0.1.0",
-  "publisher": "local-dev",
-  "private": true,
-  "engines": {
-    "vscode": "^1.90.0"
-  },
-  "categories": [
-    "Other"
-  ],
-  "extensionKind": [
-    "ui"
-  ],
-  "activationEvents": [
-    "onStartupFinished",
-    "onView:devStravaStatsView",
-    "onCommand:devStrava.showConsentPrompt",
-    "onCommand:devStrava.toggleStats",
-    "onCommand:devStrava.openSessionPanel",
-    "onCommand:devStrava.pauseRecording",
-    "onCommand:devStrava.resumeRecording",
-    "onCommand:devStrava.stopRecording",
-    "onCommand:devStrava.resetSession"
-  ],
-  "main": "./src/extension.js",
+  "engines": { "vscode": "^1.74.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "panel": [
-        {
-          "id": "devstravaPanel",
-          "title": "DevStrava",
-          "icon": "media/devstrava-view.svg"
-        }
-      ]
-    },
-    "views": {
-      "devstravaPanel": [
-        {
-          "type": "webview",
-          "id": "devStravaStatsView",
-          "name": "Stats"
-        }
-      ]
-    },
     "commands": [
-      {
-        "command": "devStrava.showConsentPrompt",
-        "title": "DevStrava: Session Controls"
-      },
-      {
-        "command": "devStrava.toggleStats",
-        "title": "DevStrava: Toggle Stats"
-      },
-      {
-        "command": "devStrava.openSessionPanel",
-        "title": "DevStrava: Open Compact Control Panel"
-      },
-      {
-        "command": "devStrava.pauseRecording",
-        "title": "DevStrava: Pause Recording"
-      },
-      {
-        "command": "devStrava.resumeRecording",
-        "title": "DevStrava: Resume Recording"
-      },
-      {
-        "command": "devStrava.stopRecording",
-        "title": "DevStrava: Stop Recording"
-      },
-      {
-        "command": "devStrava.resetSession",
-        "title": "DevStrava: Reset Current Session"
+      { "command": "sprintly.startSession",  "title": "Sprintly: Start Session" },
+      { "command": "sprintly.stopSession",   "title": "Sprintly: Stop Session" },
+      { "command": "sprintly.pauseSession",  "title": "Sprintly: Pause Session" },
+      { "command": "sprintly.resumeSession", "title": "Sprintly: Resume Session" },
+      { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
+      { "command": "sprintly.showStatusPanel",  "title": "Show Status Panel", "category": "Sprintly" }
+    ],
+    "configuration": {
+      "title": "Sprintly",
+      "properties": {
+        "sprintly.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable Sprintly."
+        },
+        "sprintly.autoPromptOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show recording prompt when VS Code opens."
+        }
       }
-    ]
+    }
   },
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/session/sessionManager.js && node --check src/session/activityTracker.js && node --check src/session/scoringModel.js && node --check src/session/telemetryModel.js && node --check src/state/sessionStore.js && node --check src/ui/consentPrompt.js && node --check src/ui/sessionPanel.js && node --check src/ui/statusBarController.js && node --check website/app.js"
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
   },
   "devDependencies": {
-    "@types/vscode": "^1.90.0"
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^5.x"
   }
 }

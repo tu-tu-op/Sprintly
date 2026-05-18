@@ -16,7 +16,7 @@ The product should feel fun, playful, and shareable, while staying privacy-consc
 
 **Prompt:**
 
-> Build the first version of a minimalist VS Code extension for a product called DevStrava. The extension must be consent-first and must not record anything by default.
+> Build the first version of a minimalist VS Code extension for a product called Sprintly. The extension must be consent-first and must not record anything by default.
 >
 > Requirements:
 >
@@ -53,7 +53,7 @@ The product should feel fun, playful, and shareable, while staying privacy-consc
 
 **Prompt:**
 
-> Update the DevStrava extension UI so the session panel does NOT open as a separate VS Code tab, editor group, or document view.
+> Update the Sprintly extension UI so the session panel does NOT open as a separate VS Code tab, editor group, or document view.
 >
 > Use the attached reference image as the visual target: a compact, floating, card-like control panel with a small header, subtle borders, rounded corners, and a dense but minimal stats layout.
 >
@@ -91,7 +91,7 @@ The product should feel fun, playful, and shareable, while staying privacy-consc
 
 **Prompt:**
 
-> Extend the DevStrava VS Code extension so it can track session activity after the user has explicitly enabled recording.
+> Extend the Sprintly VS Code extension so it can track session activity after the user has explicitly enabled recording.
 >
 > Track only high-level signals, not raw code content.
 >
@@ -129,7 +129,7 @@ The product should feel fun, playful, and shareable, while staying privacy-consc
 
 **Prompt:**
 
-> Build the website for DevStrava, the developer activity tracking product.
+> Build the website for Sprintly, the developer activity tracking product.
 >
 > The website should be the place where users view history, generate shareable cards, and participate in leaderboards.
 >

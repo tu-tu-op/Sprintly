@@ -27,7 +27,7 @@ async function showConsentPrompt(sessionManager, sessionPanel, options = {}) {
   }));
 
   const selection = await vscode.window.showQuickPick(items, {
-    title: 'DevStrava',
+    title: 'Sprintly',
     placeHolder: detail,
     ignoreFocusOut: false
   });
@@ -74,7 +74,7 @@ function getActionDescription(action) {
   }
 
   if (action === NOT_NOW) {
-    return 'Keep DevStrava idle';
+    return 'Keep Sprintly idle';
   }
 
   if (action === VIEW_STATS) {
@@ -103,19 +103,19 @@ function getActionDescription(action) {
 function buildMessage(snapshot, source) {
   if (snapshot.isRecording) {
     return snapshot.isPaused
-      ? 'DevStrava is paused. Resume, reset, stop, or open the session panel.'
-      : 'DevStrava is recording aggregated coding-session stats. Pause, reset, stop, or open the session panel.';
+      ? 'Sprintly is paused. Resume, reset, stop, or open the session panel.'
+      : 'Sprintly is recording aggregated coding-session stats. Pause, reset, stop, or open the session panel.';
   }
 
   if (source === 'startup' && snapshot.storedConsentStatus === 'declined') {
-    return 'DevStrava is off. Your last local choice was "Not Now". Start recording this coding session?';
+    return 'Sprintly is off. Your last local choice was "Not Now". Start recording this coding session?';
   }
 
   if (source === 'startup' && snapshot.storedConsentStatus === 'accepted') {
-    return 'DevStrava does not auto-record. You approved recording previously, but this new coding session still needs explicit consent. Start now?';
+    return 'Sprintly does not auto-record. You approved recording previously, but this new coding session still needs explicit consent. Start now?';
   }
 
-  return 'DevStrava is off by default. Start recording the current coding session?';
+  return 'Sprintly is off by default. Start recording the current coding session?';
 }
 
 module.exports = {
