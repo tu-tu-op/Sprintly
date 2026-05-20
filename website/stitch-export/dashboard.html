@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sprintly Overview Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;family=Geist:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-primary-container": "#340080",
+                      "error-container": "#93000a",
+                      "glass-border": "rgba(255, 255, 255, 0.1)",
+                      "on-surface": "#e5e2e1",
+                      "outline-variant": "#494454",
+                      "on-tertiary-fixed-variant": "#653e00",
+                      "surface-container-lowest": "#0e0e0e",
+                      "surface-container": "#201f1f",
+                      "tertiary-fixed": "#ffddb8",
+                      "primary-container": "#a078ff",
+                      "on-error-container": "#ffdad6",
+                      "on-background": "#e5e2e1",
+                      "on-error": "#690005",
+                      "primary": "#d0bcff",
+                      "on-tertiary-fixed": "#2a1700",
+                      "on-secondary-fixed": "#001f26",
+                      "secondary": "#4cd7f6",
+                      "surface-bright": "#3a3939",
+                      "on-tertiary": "#472a00",
+                      "inverse-primary": "#6d3bd7",
+                      "surface": "#131313",
+                      "surface-variant": "#353534",
+                      "inverse-surface": "#e5e2e1",
+                      "indigo-accent": "#6366F1",
+                      "on-primary": "#3c0091",
+                      "inverse-on-surface": "#313030",
+                      "tertiary": "#ffb95f",
+                      "surface-container-highest": "#353534",
+                      "surface-graphite": "#171717",
+                      "on-surface-variant": "#cbc3d7",
+                      "surface-container-low": "#1c1b1b",
+                      "primary-fixed": "#e9ddff",
+                      "secondary-fixed": "#acedff",
+                      "secondary-container": "#03b5d3",
+                      "tertiary-container": "#ca8100",
+                      "on-primary-fixed-variant": "#5516be",
+                      "on-tertiary-container": "#3e2400",
+                      "background": "#131313",
+                      "error": "#ffb4ab",
+                      "on-primary-fixed": "#23005c",
+                      "success-streak": "#22C55E",
+                      "on-secondary-fixed-variant": "#004e5c",
+                      "secondary-fixed-dim": "#4cd7f6",
+                      "surface-tint": "#d0bcff",
+                      "on-secondary-container": "#00424e",
+                      "surface-container-high": "#2a2a2a",
+                      "tertiary-fixed-dim": "#ffb95f",
+                      "surface-elevated": "#262626",
+                      "outline": "#958ea0",
+                      "on-secondary": "#003640",
+                      "primary-fixed-dim": "#d0bcff",
+                      "surface-dim": "#131313"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "unit": "4px",
+                      "margin-mobile": "16px",
+                      "container-max": "1440px",
+                      "margin-desktop": "32px",
+                      "sidebar-width": "260px",
+                      "gutter": "24px"
+              },
+              "fontFamily": {
+                      "display-lg": [
+                              "Chivo"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "headline-lg-mobile": [
+                              "Chivo"
+                      ],
+                      "label-sm-mono": [
+                              "Geist"
+                      ],
+                      "headline-md": [
+                              "Chivo"
+                      ],
+                      "headline-lg": [
+                              "Chivo"
+                      ],
+                      "label-md": [
+                              "Geist"
+                      ]
+              },
+              "fontSize": {
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "800"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-sm-mono": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+            },
+          },
+        }
+    </script>
+<style>
+        .neon-glow {
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+        }
+        .neon-glow-strong {
+            box-shadow: 0 0 25px rgba(139, 92, 246, 0.5);
+        }
+        .glass-panel {
+            background: rgba(23, 23, 23, 0.8);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Subtle grid background for the main canvas */
+        body {
+            background-image: 
+                linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 32px 32px;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface antialiased min-h-screen selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar (Predicted JSON Component) -->
+<nav class="hidden md:flex flex-col py-margin-desktop space-y-unit w-[260px] h-screen fixed left-0 top-0 bg-surface-container dark:bg-surface-container border-r border-glass-border backdrop-blur-xl shadow-[0_0_15px_rgba(139,92,246,0.1)] z-50">
+<!-- Header -->
+<div class="px-6 mb-8 flex items-center gap-3">
+<img alt="Sprintly Logo" class="w-10 h-10 rounded-lg" src="data:image/png;base64,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"/>
+<div>
+<h1 class="font-headline-md text-headline-md font-black tracking-tight text-primary dark:text-primary">Sprintly</h1>
+<p class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest">Developer Craft</p>
+</div>
+</div>
+<!-- CTA -->
+<div class="px-6 mb-6">
+<button class="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-gradient-to-r from-indigo-accent to-primary text-on-primary font-label-md text-label-md font-semibold hover:opacity-90 transition-opacity neon-glow">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">add</span>
+                New Session
+            </button>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 px-4 space-y-2">
+<!-- Active: Overview -->
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-primary dark:text-primary bg-primary-container/10 border-r-2 border-primary scale-95 transition-transform duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-label-md text-label-md">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/50 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">terminal</span>
+<span class="font-label-md text-label-md">Workspace</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/50 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">timer</span>
+<span class="font-label-md text-label-md">Sessions</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/50 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">insights</span>
+<span class="font-label-md text-label-md">Analytics</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/50 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">military_tech</span>
+<span class="font-label-md text-label-md">Goals</span>
+</a>
+</div>
+<!-- Bottom Links -->
+<div class="px-4 space-y-2 mt-auto">
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/50 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">account_circle</span>
+<span class="font-label-md text-label-md">Profile</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-lg text-on-surface-variant dark:text-on-surface-variant hover:text-on-surface hover:bg-surface-bright/50 transition-all duration-200" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-md text-label-md">Settings</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar (Predicted JSON Component) -->
+<header class="fixed top-0 right-0 left-0 md:left-[260px] h-16 bg-surface/80 dark:bg-surface/80 border-b border-glass-border backdrop-blur-md flex justify-between items-center px-margin-desktop w-full z-40">
+<!-- Mobile Logo / Breadcrumb -->
+<div class="flex items-center gap-2">
+<button class="md:hidden text-on-surface-variant hover:text-on-surface transition-colors mr-2">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<span class="hidden md:block font-headline-md text-headline-md text-primary font-bold">Overview</span>
+<span class="md:hidden font-headline-md text-headline-md text-primary font-bold">Sprintly</span>
+</div>
+<!-- Search & Actions -->
+<div class="flex items-center gap-4">
+<!-- Search (Command Palette entry) -->
+<button class="hidden md:flex items-center gap-2 px-4 py-2 bg-surface-graphite border border-glass-border rounded-xl text-on-surface-variant hover:border-primary/50 transition-colors focus:ring-1 focus:ring-primary/50">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span class="font-body-sm text-body-sm mr-8">Search commands...</span>
+<div class="flex items-center gap-1">
+<span class="px-1.5 py-0.5 rounded bg-surface-variant text-[10px] font-label-sm-mono">⌘</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-variant text-[10px] font-label-sm-mono">K</span>
+</div>
+</button>
+<!-- Action Icons -->
+<button class="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high/50 rounded-xl transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full neon-glow"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary hover:bg-surface-container-high/50 rounded-xl transition-colors">
+<span class="material-symbols-outlined">keyboard_command_key</span>
+</button>
+<!-- User Avatar -->
+<button class="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-secondary p-[1px]">
+<div class="w-full h-full rounded-full bg-surface-graphite flex items-center justify-center overflow-hidden">
+<img alt="User Avatar" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBiA4zoU_CHr0BVkRyIfCAPLQGrKenaFgf314IPZv33BoIexH_PTyYAsxpL5nfODe2BXmXb1jUCkPRaG3SjacddWJsHPBpVeFFYdrEbh5A1s8PkgwK3SY-3lwRoXH4JZ8qzDe-66kEFSgM0aEDv_EwJdjytTvc6Z-Czd1PyesORXjWPuSBtnnlINb3SuaFwVtO2_UtBn2vQTo0Y8JxfPEIgbnQ3iKL7NE-UM1zI5NLx9x5udv-uwmSxpANELULwn4RRlh2Lb0w83p4"/>
+</div>
+</button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="pt-[88px] pb-12 px-margin-mobile md:px-margin-desktop md:ml-[260px] max-w-container-max mx-auto min-h-screen">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+<div>
+<h2 class="font-display-lg text-display-lg text-on-surface mb-2">Good morning, Dev.</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant">Your momentum is building. You're on a 5-day streak.</p>
+</div>
+<div class="flex gap-3">
+<button class="flex-1 md:flex-none px-6 py-2.5 rounded-lg border border-glass-border bg-transparent text-on-surface hover:bg-surface-graphite transition-colors font-label-md text-label-md flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">add_task</span>
+                    Quick Task
+                </button>
+<button class="flex-1 md:flex-none px-6 py-2.5 rounded-lg bg-gradient-to-r from-indigo-accent to-primary text-on-primary font-label-md text-label-md font-semibold hover:opacity-90 transition-opacity neon-glow flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                    Start Session
+                </button>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+<!-- KPI: Momentum Score (Featured) -->
+<div class="md:col-span-4 bg-surface-graphite rounded-xl border border-glass-border p-6 relative overflow-hidden flex flex-col justify-between min-h-[200px]">
+<!-- Subtle background glow -->
+<div class="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[40px] rounded-full"></div>
+<div class="flex justify-between items-start z-10">
+<div>
+<h3 class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest mb-1">Momentum Score</h3>
+<p class="font-body-sm text-body-sm text-outline">Based on recent activity</p>
+</div>
+<span class="material-symbols-outlined text-primary">speed</span>
+</div>
+<div class="z-10 mt-6 flex items-end gap-4">
+<div class="font-display-lg text-display-lg text-primary text-5xl">87</div>
+<div class="flex flex-col pb-1">
+<span class="font-label-sm-mono text-label-sm-mono text-success-streak flex items-center">
+<span class="material-symbols-outlined text-[14px]">arrow_upward</span>
+                            +12 pts
+                        </span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">vs last week</span>
+</div>
+</div>
+<!-- Simple progress bar indicating 87% -->
+<div class="w-full h-1.5 bg-surface-variant rounded-full mt-6 overflow-hidden z-10">
+<div class="h-full bg-gradient-to-r from-indigo-accent to-primary rounded-full neon-glow" style="width: 87%"></div>
+</div>
+</div>
+<!-- KPI: Session Streak -->
+<div class="md:col-span-4 bg-surface-graphite rounded-xl border border-glass-border p-6 flex flex-col justify-between min-h-[200px]">
+<div class="flex justify-between items-start">
+<h3 class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest">Session Streak</h3>
+<span class="material-symbols-outlined text-tertiary">local_fire_department</span>
+</div>
+<div class="mt-4 flex items-baseline gap-2">
+<span class="font-display-lg text-display-lg text-on-surface">5</span>
+<span class="font-body-lg text-body-lg text-on-surface-variant">days</span>
+</div>
+<div class="mt-auto flex justify-between items-center pt-4 border-t border-glass-border">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Best: 14 days</span>
+<span class="px-2 py-1 rounded bg-surface-container-high text-on-surface font-label-sm-mono text-label-sm-mono">Keep going!</span>
+</div>
+</div>
+<!-- KPI Stack: Focus Time & Task Rate -->
+<div class="md:col-span-4 grid grid-rows-2 gap-6">
+<!-- Focus Time -->
+<div class="bg-surface-graphite rounded-xl border border-glass-border p-5 flex items-center justify-between">
+<div>
+<h3 class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest mb-2">Focus Time (Today)</h3>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-lg text-headline-lg text-on-surface">4h 12m</span>
+</div>
+</div>
+<div class="w-12 h-12 rounded-full border-4 border-surface-variant border-t-secondary flex items-center justify-center transform -rotate-45">
+<span class="material-symbols-outlined text-secondary transform rotate-45 text-[20px]">schedule</span>
+</div>
+</div>
+<!-- Task Completion -->
+<div class="bg-surface-graphite rounded-xl border border-glass-border p-5 flex items-center justify-between">
+<div>
+<h3 class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest mb-2">Completion Rate</h3>
+<div class="flex items-baseline gap-2">
+<span class="font-headline-lg text-headline-lg text-on-surface">92%</span>
+</div>
+</div>
+<div class="w-12 h-12 rounded-full border-4 border-surface-variant border-t-success-streak flex items-center justify-center transform rotate-45">
+<span class="material-symbols-outlined text-success-streak transform -rotate-45 text-[20px]">task_alt</span>
+</div>
+</div>
+</div>
+<!-- Weekly Trend Chart (Large Span) -->
+<div class="md:col-span-8 bg-surface-graphite rounded-xl border border-glass-border p-6 relative">
+<div class="flex justify-between items-center mb-6">
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Focus Hours</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Last 7 days</p>
+</div>
+<div class="flex gap-2">
+<button class="px-3 py-1 rounded bg-surface-variant text-on-surface font-label-sm-mono text-label-sm-mono text-[10px]">W</button>
+<button class="px-3 py-1 rounded text-on-surface-variant hover:bg-surface-variant font-label-sm-mono text-label-sm-mono text-[10px]">M</button>
+<button class="px-3 py-1 rounded text-on-surface-variant hover:bg-surface-variant font-label-sm-mono text-label-sm-mono text-[10px]">Y</button>
+</div>
+</div>
+<!-- Mock Area Chart -->
+<div class="h-[200px] w-full relative flex items-end justify-between px-2">
+<!-- Grid lines -->
+<div class="absolute inset-0 flex flex-col justify-between pb-8 pointer-events-none border-b border-glass-border">
+<div class="w-full h-px border-t border-glass-border border-dashed opacity-50"></div>
+<div class="w-full h-px border-t border-glass-border border-dashed opacity-50"></div>
+<div class="w-full h-px border-t border-glass-border border-dashed opacity-50"></div>
+</div>
+<!-- Bars / Points -->
+<div class="w-8 h-[40%] bg-surface-variant rounded-t-sm relative group cursor-pointer">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">2h</div>
+</div>
+<div class="w-8 h-[60%] bg-surface-variant rounded-t-sm relative group cursor-pointer">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">4h</div>
+</div>
+<div class="w-8 h-[80%] bg-surface-variant rounded-t-sm relative group cursor-pointer">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">5h</div>
+</div>
+<div class="w-8 h-[30%] bg-surface-variant rounded-t-sm relative group cursor-pointer">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">1.5h</div>
+</div>
+<div class="w-8 h-[90%] bg-primary/80 rounded-t-sm relative group cursor-pointer neon-glow border border-primary/50">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated text-primary px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">6h</div>
+</div>
+<div class="w-8 h-[70%] bg-surface-variant rounded-t-sm relative group cursor-pointer">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">4.5h</div>
+</div>
+<div class="w-8 h-[50%] bg-surface-variant rounded-t-sm relative group cursor-pointer">
+<div class="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-surface-elevated px-2 py-1 rounded text-[10px] font-label-sm-mono opacity-0 group-hover:opacity-100 transition-opacity">3h</div>
+</div>
+</div>
+<!-- X Axis Labels -->
+<div class="flex justify-between px-2 mt-4 text-[10px] font-label-sm-mono text-on-surface-variant">
+<span>Mon</span>
+<span>Tue</span>
+<span>Wed</span>
+<span>Thu</span>
+<span class="text-primary font-bold">Fri</span>
+<span>Sat</span>
+<span>Sun</span>
+</div>
+</div>
+<!-- Streak Heatmap & Activity -->
+<div class="md:col-span-4 flex flex-col gap-6">
+<!-- Mini Heatmap -->
+<div class="bg-surface-graphite rounded-xl border border-glass-border p-6">
+<h3 class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest mb-4">Consistency</h3>
+<div class="grid grid-cols-7 gap-1">
+<!-- Simulated past 4 weeks of activity dots -->
+<!-- Row 1 -->
+<div class="w-full aspect-square rounded-sm bg-surface-variant"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/20"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/40"></div>
+<div class="w-full aspect-square rounded-sm bg-surface-variant"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/80 neon-glow"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/20"></div>
+<div class="w-full aspect-square rounded-sm bg-surface-variant"></div>
+<!-- Row 2 -->
+<div class="w-full aspect-square rounded-sm bg-primary/60"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/80 neon-glow"></div>
+<div class="w-full aspect-square rounded-sm bg-surface-variant"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/40"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/60"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/20"></div>
+<div class="w-full aspect-square rounded-sm bg-surface-variant"></div>
+<!-- Row 3 (Current) -->
+<div class="w-full aspect-square rounded-sm bg-primary/80 neon-glow"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/80 neon-glow"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/80 neon-glow"></div>
+<div class="w-full aspect-square rounded-sm bg-primary/80 neon-glow"></div>
+<div class="w-full aspect-square rounded-sm bg-primary rounded-full neon-glow-strong animate-pulse border border-white/20"></div>
+<div class="w-full aspect-square rounded-sm bg-surface-container border border-dashed border-glass-border"></div>
+<div class="w-full aspect-square rounded-sm bg-surface-container border border-dashed border-glass-border"></div>
+</div>
+</div>
+</div>
+<!-- Recent Activity List -->
+<div class="md:col-span-12 bg-surface-graphite rounded-xl border border-glass-border p-6">
+<div class="flex justify-between items-center mb-6">
+<h3 class="font-headline-md text-headline-md text-on-surface">Recent Sessions</h3>
+<a class="text-primary font-label-md text-label-md hover:underline flex items-center gap-1" href="#">
+                        View All
+                        <span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+<div class="space-y-2">
+<!-- Activity Item 1 -->
+<div class="flex items-center justify-between p-4 rounded-lg hover:bg-surface-container-high transition-colors border border-transparent hover:border-glass-border group">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center group-hover:bg-primary group-hover:text-on-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">terminal</span>
+</div>
+<div>
+<h4 class="font-body-md text-body-md text-on-surface font-semibold">API Refactoring</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Project: Core Backend • 2h 15m</p>
+</div>
+</div>
+<div class="text-right">
+<span class="inline-block px-2 py-1 rounded bg-success-streak/10 text-success-streak font-label-sm-mono text-label-sm-mono border border-success-streak/20">
+                                +24 pts
+                            </span>
+<p class="font-body-sm text-body-sm text-outline mt-1">Today, 2:00 PM</p>
+</div>
+</div>
+<!-- Activity Item 2 -->
+<div class="flex items-center justify-between p-4 rounded-lg hover:bg-surface-container-high transition-colors border border-transparent hover:border-glass-border group">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-secondary/10 text-secondary flex items-center justify-center group-hover:bg-secondary group-hover:text-on-secondary transition-colors">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">bug_report</span>
+</div>
+<div>
+<h4 class="font-body-md text-body-md text-on-surface font-semibold">Squash Auth Bugs</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Project: Web Client • 45m</p>
+</div>
+</div>
+<div class="text-right">
+<span class="inline-block px-2 py-1 rounded bg-success-streak/10 text-success-streak font-label-sm-mono text-label-sm-mono border border-success-streak/20">
+                                +8 pts
+                            </span>
+<p class="font-body-sm text-body-sm text-outline mt-1">Today, 10:30 AM</p>
+</div>
+</div>
+<!-- Activity Item 3 -->
+<div class="flex items-center justify-between p-4 rounded-lg hover:bg-surface-container-high transition-colors border border-transparent hover:border-glass-border group opacity-70">
+<div class="flex items-center gap-4">
+<div class="w-10 h-10 rounded-full bg-surface-variant text-on-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">design_services</span>
+</div>
+<div>
+<h4 class="font-body-md text-body-md text-on-surface font-semibold">UI Component Updates</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Project: Design System • 1h 30m</p>
+</div>
+</div>
+<div class="text-right">
+<span class="inline-block px-2 py-1 rounded bg-surface-variant text-on-surface-variant font-label-sm-mono text-label-sm-mono">
+                                +15 pts
+                            </span>
+<p class="font-body-sm text-body-sm text-outline mt-1">Yesterday</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

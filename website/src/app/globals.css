@@ -1,0 +1,94 @@
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;700;800&family=Inter:wght@400;500;600&family=Geist:wght@500&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 12%;
+    --primary: 258 100% 70%;
+    --primary-foreground: 263 100% 16%;
+    --secondary: 190 91% 63%;
+    --secondary-foreground: 190 100% 13%;
+    --muted: 0 0% 94%;
+    --muted-foreground: 267 14% 38%;
+    --accent: 240 84% 67%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 100% 70%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 267 10% 72%;
+    --input: 267 10% 72%;
+    --ring: 258 100% 70%;
+    --radius: 0.25rem;
+  }
+
+  .dark {
+    --background: 0 0% 7%;
+    --foreground: 20 6% 89%;
+    --card: 0 0% 12%;
+    --card-foreground: 20 6% 89%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 20 6% 89%;
+    --primary: 258 100% 87%;
+    --primary-foreground: 265 100% 28%;
+    --secondary: 190 91% 63%;
+    --secondary-foreground: 190 100% 13%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 267 14% 80%;
+    --accent: 239 84% 67%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 4 100% 84%;
+    --destructive-foreground: 355 100% 22%;
+    --border: 267 10% 30%;
+    --input: 267 10% 30%;
+    --ring: 258 100% 87%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    min-height: 100%;
+  }
+
+  body {
+    min-height: 100vh;
+    @apply bg-background font-sans text-foreground antialiased;
+    background-image:
+      linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}
+
+@layer utilities {
+  .neon-glow {
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+  }
+
+  .neon-glow-strong {
+    box-shadow: 0 0 25px rgba(139, 92, 246, 0.5);
+  }
+
+  .glass-panel {
+    background: rgba(23, 23, 23, 0.8);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+}

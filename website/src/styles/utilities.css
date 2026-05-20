@@ -1,0 +1,52 @@
+.shell-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+}
+
+.shell-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.shell-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+}
+
+.stitch-page-root {
+  min-height: 100%;
+}
+
+.glow-effect:hover {
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+}
+
+.task-card {
+  transition: all 0.2s ease-in-out;
+}
+
+.task-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border-color: rgba(208, 188, 255, 0.3);
+}
+
+.glow-violet {
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.3);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 15px rgba(76, 215, 246, 0.3);
+}
+
+.card-gradient {
+  background: radial-gradient(120% 120% at 100% 0%, rgba(160, 120, 255, 0.05) 0%, rgba(23, 23, 23, 1) 100%);
+}
+
+.donut-segment {
+  transition: stroke-width 0.2s ease;
+}
+
+.donut-segment:hover {
+  stroke-width: 14;
+}

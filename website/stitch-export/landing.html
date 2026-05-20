@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Sprintly | Developer Craft</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;600;700;800&amp;family=Inter:wght@400;500;600&amp;family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary-container": "#03b5d3",
+                      "inverse-on-surface": "#313030",
+                      "primary-fixed": "#e9ddff",
+                      "success-streak": "#22C55E",
+                      "secondary-fixed-dim": "#4cd7f6",
+                      "surface-container-low": "#1c1b1b",
+                      "on-tertiary": "#472a00",
+                      "surface-container": "#201f1f",
+                      "on-secondary-fixed-variant": "#004e5c",
+                      "on-tertiary-fixed-variant": "#653e00",
+                      "primary-container": "#a078ff",
+                      "on-primary-fixed": "#23005c",
+                      "inverse-primary": "#6d3bd7",
+                      "surface-container-lowest": "#0e0e0e",
+                      "on-error": "#690005",
+                      "error": "#ffb4ab",
+                      "on-secondary-fixed": "#001f26",
+                      "on-background": "#e5e2e1",
+                      "on-surface-variant": "#cbc3d7",
+                      "surface-elevated": "#262626",
+                      "tertiary-fixed-dim": "#ffb95f",
+                      "on-error-container": "#ffdad6",
+                      "surface-container-highest": "#353534",
+                      "on-primary-fixed-variant": "#5516be",
+                      "on-primary-container": "#340080",
+                      "surface-graphite": "#171717",
+                      "primary-fixed-dim": "#d0bcff",
+                      "surface-tint": "#d0bcff",
+                      "surface": "#131313",
+                      "outline-variant": "#494454",
+                      "inverse-surface": "#e5e2e1",
+                      "surface-bright": "#3a3939",
+                      "surface-container-high": "#2a2a2a",
+                      "background": "#131313",
+                      "surface-variant": "#353534",
+                      "tertiary-container": "#ca8100",
+                      "on-primary": "#3c0091",
+                      "primary": "#d0bcff",
+                      "on-tertiary-fixed": "#2a1700",
+                      "on-secondary-container": "#00424e",
+                      "on-surface": "#e5e2e1",
+                      "on-secondary": "#003640",
+                      "surface-dim": "#131313",
+                      "secondary": "#4cd7f6",
+                      "error-container": "#93000a",
+                      "outline": "#958ea0",
+                      "secondary-fixed": "#acedff",
+                      "indigo-accent": "#6366F1",
+                      "glass-border": "rgba(255, 255, 255, 0.1)",
+                      "on-tertiary-container": "#3e2400",
+                      "tertiary-fixed": "#ffddb8",
+                      "tertiary": "#ffb95f"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "margin-desktop": "32px",
+                      "gutter": "24px",
+                      "sidebar-width": "260px",
+                      "unit": "4px",
+                      "container-max": "1440px",
+                      "margin-mobile": "16px"
+              },
+              "fontFamily": {
+                      "label-md": [
+                              "Geist"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Chivo"
+                      ],
+                      "label-sm-mono": [
+                              "Geist"
+                      ],
+                      "headline-lg-mobile": [
+                              "Chivo"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Chivo"
+                      ],
+                      "headline-lg": [
+                              "Chivo"
+                      ]
+              },
+              "fontSize": {
+                      "label-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "body-md": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "18px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "800"
+                              }
+                      ],
+                      "label-sm-mono": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ],
+                      "headline-lg-mobile": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "32px",
+                              {
+                                      "lineHeight": "40px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "700"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: #0A0A0A;
+            color: #e5e2e1;
+        }
+        .glass-panel {
+            background: rgba(23, 23, 23, 0.8);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .glow-shadow {
+            box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+        }
+        .neon-glow {
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.3);
+        }
+        .bg-grid-pattern {
+            background-image: linear-gradient(to right, rgba(255,255,255,0.05) 1px, transparent 1px),
+                              linear-gradient(to bottom, rgba(255,255,255,0.05) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        .perspective-container {
+            perspective: 2000px;
+        }
+        .screen-tilt-1 {
+            transform: rotateY(-15deg) rotateX(5deg) translateZ(-100px) translateX(-50px);
+            transition: transform 0.5s ease-out;
+        }
+        .screen-tilt-2 {
+            transform: rotateY(0deg) translateZ(50px) translateY(-20px);
+            z-index: 10;
+            transition: transform 0.5s ease-out;
+        }
+        .screen-tilt-3 {
+            transform: rotateY(15deg) rotateX(5deg) translateZ(-100px) translateX(50px);
+            transition: transform 0.5s ease-out;
+        }
+        .perspective-container:hover .screen-tilt-1 {
+            transform: rotateY(-5deg) rotateX(2deg) translateZ(-50px) translateX(-20px);
+        }
+        .perspective-container:hover .screen-tilt-2 {
+            transform: rotateY(0deg) translateZ(100px) translateY(-10px);
+        }
+        .perspective-container:hover .screen-tilt-3 {
+            transform: rotateY(5deg) rotateX(2deg) translateZ(-50px) translateX(20px);
+        }
+        .gradient-text {
+            background: linear-gradient(to right, #d0bcff, #4cd7f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .gradient-button {
+            background: linear-gradient(135deg, #6d3bd7, #a078ff);
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col font-body-md text-body-md selection:bg-primary-container/30">
+<!-- TopNavBar (Public Variation) -->
+<nav class="fixed top-0 left-0 right-0 h-16 z-50 glass-panel flex justify-between items-center px-margin-mobile md:px-margin-desktop w-full transition-all duration-300">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-2xl" style="font-variation-settings: 'FILL' 1;">terminal</span>
+<span class="font-headline-md text-headline-md text-primary font-black tracking-tight">Sprintly</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#features">Features</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#pricing">Pricing</a>
+<a class="font-label-md text-label-md text-on-surface-variant hover:text-on-surface transition-colors" href="#community">Community</a>
+</div>
+<div class="flex items-center gap-4">
+<a class="hidden md:block font-label-md text-label-md text-on-surface hover:text-primary transition-colors" href="/login">Sign In</a>
+<a class="gradient-button text-white px-5 py-2 rounded-lg font-label-md text-label-md font-semibold hover:opacity-90 transition-opacity flex items-center gap-2" href="/signup">
+                Get Started
+                <span class="material-symbols-outlined text-sm">arrow_forward</span>
+</a>
+</div>
+</nav>
+<!-- Main Content -->
+<main class="flex-1 flex flex-col">
+<!-- Hero Section -->
+<section class="relative pt-32 pb-24 px-margin-mobile md:px-margin-desktop overflow-hidden flex flex-col items-center justify-center text-center min-h-[819px]">
+<!-- Background effects -->
+<div class="absolute inset-0 bg-grid-pattern opacity-30 pointer-events-none"></div>
+<div class="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/20 rounded-full blur-[120px] pointer-events-none"></div>
+<div class="relative z-10 max-w-4xl mx-auto space-y-8">
+<div class="inline-flex items-center gap-2 px-3 py-1 rounded-full glass-panel mb-4 border-primary/30">
+<span class="w-2 h-2 rounded-full bg-secondary animate-pulse"></span>
+<span class="font-label-sm-mono text-label-sm-mono text-secondary uppercase tracking-widest">Sprintly v2.0 is Live</span>
+</div>
+<h1 class="font-display-lg text-display-lg md:text-[72px] md:leading-[80px] text-on-surface font-extrabold tracking-tighter">
+                    Craft your <span class="gradient-text">momentum.</span>
+</h1>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl mx-auto text-xl">
+                    The productivity platform for developers who treat coding like a sport. Track streaks, crush tasks, and visualize your craft.
+                </p>
+<div class="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
+<button class="w-full sm:w-auto gradient-button text-white px-8 py-3 rounded-xl font-label-md text-label-md font-bold hover:scale-105 transition-transform duration-200 glow-shadow flex items-center justify-center gap-2">
+                        Get Started
+                        <span class="material-symbols-outlined">rocket_launch</span>
+</button>
+<button class="w-full sm:w-auto px-8 py-3 rounded-xl font-label-md text-label-md font-semibold text-on-surface glass-panel hover:bg-surface-bright/50 transition-colors flex items-center justify-center gap-2">
+                        View Demo
+                        <span class="material-symbols-outlined">play_circle</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Product Showcase Section -->
+<section class="relative py-16 px-margin-mobile md:px-margin-desktop overflow-hidden">
+<div class="max-w-container-max mx-auto perspective-container flex justify-center h-[400px] md:h-[600px] relative">
+<!-- Left Screen (Task Workspace) -->
+<div class="absolute left-0 md:left-1/4 top-10 w-[80%] md:w-[600px] rounded-xl overflow-hidden glass-panel glow-shadow screen-tilt-1 border border-glass-border">
+<div class="h-8 bg-surface-elevated border-b border-glass-border flex items-center px-4 gap-2">
+<div class="flex gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+</div>
+</div>
+<img alt="" class="w-full h-auto object-cover opacity-80 mix-blend-screen" data-alt="A dark-mode UI screen showing a developer task workspace. It features a focused, distraction-free layout with lists of coding tasks, subtle violet accent highlights on active items, and a technical, minimalist aesthetic typical of high-end developer tools. Lighting is low-key with glowing elements." src="https://lh3.googleusercontent.com/aida-public/AB6AXuATEu1h0u0oaByYASrm-e1c16wC-CVuAPakuzAdGanYGUKx7TBWTuzXe2ExpyK9QzIoC5AmbBUydG1U7m0SUPDaTUzWknn3LG9A56i3f2kg4Hglu-ooHb2G65jc2tw-QnmW4qqxVmLAVg_Vzao6_0gAt7x7VOMvdNEKkVWRrQ2G1ebDniV7qry7JPI5eLsl-dzklv8EobgGi3G0wLBBo29rX2okYbV5pLjhw6H48mCGa140W51AK2Egyl00ZtJWgtRzf56eRLzEHhc"/>
+</div>
+<!-- Center Screen (Overview Dashboard) -->
+<div class="absolute left-1/2 -translate-x-1/2 top-0 w-[90%] md:w-[700px] rounded-xl overflow-hidden glass-panel neon-glow screen-tilt-2 border border-primary/30">
+<div class="h-8 bg-surface-elevated border-b border-glass-border flex items-center px-4 gap-2">
+<div class="flex gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-error"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-tertiary"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-success-streak"></div>
+</div>
+<div class="mx-auto font-label-sm-mono text-label-sm-mono text-on-surface-variant">sprintly-dashboard.tsx</div>
+</div>
+<img alt="" class="w-full h-auto object-cover" data-alt="A central, hero UI screen showing a complex developer productivity dashboard in dark mode. It features rich data visualizations, streak trackers in bright green and cyan, and a central command palette. The design is dense but clean, using graphite backgrounds and neon-like violet highlights for a futuristic, high-performance look." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBSjRhAdfauH7Xfpj8AhsyUoCsSxnMeRaQAbQqxUs99UBHIbBToi8A-vf6kIVdWmPt6Cf0Wxm83h50gcKqB5BfXRyM6-T9Ub8e7pP9jS1I24BA1iMtOOFisIJZrqWlXEkOOGQky59dtD21W557jZIgXjP_HfC1OeIWFsF4SE8Nc6Lss7JVKR4Fg7GUxablChpZRgjZgWrcJY1HOlJBjWYLXNs_nACgWImkL1bRUPbCR_x8lHmPfse6wlpGczuEy_P9Tl3mwVD1eFk0"/>
+</div>
+<!-- Right Screen (Performance Analytics) -->
+<div class="absolute right-0 md:right-1/4 top-10 w-[80%] md:w-[600px] rounded-xl overflow-hidden glass-panel glow-shadow screen-tilt-3 border border-glass-border">
+<div class="h-8 bg-surface-elevated border-b border-glass-border flex items-center px-4 gap-2">
+<div class="flex gap-1.5">
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant"></div>
+</div>
+</div>
+<img alt="" class="w-full h-auto object-cover opacity-80 mix-blend-screen" data-alt="A dark-mode UI screen displaying detailed performance analytics for developers. It includes neon-styled charts, glowing trendlines in cyan and violet, and dark graphite backgrounds. The interface looks highly technical, resembling a sophisticated trading dashboard but tailored for coding metrics and focus hours." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAUNFiUXuMMcj6tMtchfUQtVMDd8aXYCDrvcfUI3l-COQzyxDvFR1JjampMVrMDm-27_Pdo03bmHltXITQrv6yt5f8k-Yo9FdbHKpBqVbbdIUVzFvH1-ne6QIPoUzqW-mVHgs7uV4bz-7sgm3UXKZyYJTo-EGeN8tRFhrtWbwuz0tjxfNlx2VjSmxgmQYPAfXv3sMnWvkXLRAzHmLKJtcMDOGpizoXyR7EVj_f1NpZgwwmqHCfRQ_rnqRGyI-cUjgOoaq0X3_uSo2w"/>
+</div>
+</div>
+</section>
+<!-- Features Grid -->
+<section class="py-24 px-margin-mobile md:px-margin-desktop bg-surface-container-lowest" id="features">
+<div class="max-w-container-max mx-auto">
+<div class="text-center mb-16">
+<h2 class="font-headline-lg text-headline-lg md:text-[40px] text-on-surface font-bold mb-4">Engineered for Focus</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant max-w-2xl mx-auto">Everything you need to maintain velocity and track your progression as an engineer.</p>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Feature 1 -->
+<div class="glass-panel p-8 rounded-2xl hover:-translate-y-1 transition-transform duration-300 group">
+<div class="w-12 h-12 rounded-lg bg-primary-container/20 flex items-center justify-center mb-6 group-hover:bg-primary-container/40 transition-colors">
+<span class="material-symbols-outlined text-primary text-2xl" style="font-variation-settings: 'FILL' 1;">insights</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-3">Deep Analytics</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Heatmaps and trend charts for your focus hours. Identify your peak productivity windows.</p>
+</div>
+<!-- Feature 2 -->
+<div class="glass-panel p-8 rounded-2xl hover:-translate-y-1 transition-transform duration-300 group border-primary/20">
+<div class="w-12 h-12 rounded-lg bg-secondary/20 flex items-center justify-center mb-6 group-hover:bg-secondary/40 transition-colors">
+<span class="material-symbols-outlined text-secondary text-2xl" style="font-variation-settings: 'FILL' 1;">terminal</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-3">Flow-State Workspace</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">A distraction-free task environment that integrates directly with your repos. Command palette driven.</p>
+</div>
+<!-- Feature 3 -->
+<div class="glass-panel p-8 rounded-2xl hover:-translate-y-1 transition-transform duration-300 group">
+<div class="w-12 h-12 rounded-lg bg-tertiary/20 flex items-center justify-center mb-6 group-hover:bg-tertiary/40 transition-colors">
+<span class="material-symbols-outlined text-tertiary text-2xl" style="font-variation-settings: 'FILL' 1;">military_tech</span>
+</div>
+<h3 class="font-headline-md text-headline-md text-on-surface mb-3">Dev Identity</h3>
+<p class="font-body-md text-body-md text-on-surface-variant">Badges, archetypes, and developer stats. Treat your career progression like an RPG character sheet.</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Social Proof -->
+<section class="py-16 px-margin-mobile md:px-margin-desktop border-y border-glass-border bg-surface-graphite/30">
+<div class="max-w-container-max mx-auto text-center">
+<p class="font-label-sm-mono text-label-sm-mono text-on-surface-variant uppercase tracking-widest mb-8">Used by world-class engineers at</p>
+<div class="flex flex-wrap justify-center items-center gap-8 md:gap-16 opacity-50 grayscale hover:grayscale-0 transition-all duration-500">
+<!-- Placeholder logos using typography/icons for tech aesthetic -->
+<div class="flex items-center gap-2"><span class="material-symbols-outlined text-3xl">api</span><span class="font-headline-md font-bold">Stripe</span></div>
+<div class="flex items-center gap-2"><span class="material-symbols-outlined text-3xl">code_blocks</span><span class="font-headline-md font-bold">Vercel</span></div>
+<div class="flex items-center gap-2"><span class="material-symbols-outlined text-3xl">database</span><span class="font-headline-md font-bold">Supabase</span></div>
+<div class="flex items-center gap-2"><span class="material-symbols-outlined text-3xl">memory</span><span class="font-headline-md font-bold">OpenAI</span></div>
+</div>
+</div>
+</section>
+<!-- CTA Footer -->
+<section class="py-24 px-margin-mobile md:px-margin-desktop relative overflow-hidden">
+<div class="absolute inset-0 bg-primary/5 pointer-events-none"></div>
+<div class="absolute bottom-0 right-0 w-[400px] h-[400px] bg-secondary/10 rounded-full blur-[100px] pointer-events-none"></div>
+<div class="max-w-3xl mx-auto text-center relative z-10 glass-panel p-12 rounded-3xl glow-shadow border border-primary/20">
+<h2 class="font-display-lg text-display-lg md:text-[48px] text-on-surface font-extrabold mb-6">Ready to sprint?</h2>
+<p class="font-body-lg text-body-lg text-on-surface-variant mb-10">Join thousands of developers treating their craft with the respect it deserves.</p>
+<button class="gradient-button text-white px-10 py-4 rounded-xl font-label-md text-label-md font-bold hover:scale-105 transition-transform duration-200 neon-glow flex items-center justify-center gap-2 mx-auto text-lg">
+                    Start Your Free Trial
+                    <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+</div>
+</section>
+</main>
+<!-- Footer -->
+<footer class="py-8 px-margin-mobile md:px-margin-desktop border-t border-glass-border bg-surface-container-lowest mt-auto">
+<div class="max-w-container-max mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+<div class="flex items-center gap-2 text-on-surface-variant">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">terminal</span>
+<span class="font-label-md text-label-md font-bold">© 2024 Sprintly Inc.</span>
+</div>
+<div class="flex gap-6 font-label-sm-mono text-label-sm-mono text-on-surface-variant">
+<a class="hover:text-primary transition-colors" href="#">Twitter</a>
+<a class="hover:text-primary transition-colors" href="#">GitHub</a>
+<a class="hover:text-primary transition-colors" href="#">Discord</a>
+<a class="hover:text-primary transition-colors" href="#">Privacy</a>
+</div>
+</div>
+</footer>
+</body></html>
