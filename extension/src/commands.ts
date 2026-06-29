@@ -1,12 +1,19 @@
 import * as vscode from 'vscode';
 import { SessionTracker } from './sessionTracker';
-import { SprintlyStatusBar, makeProgressBar } from './statusBar';
+import { makeProgressBar } from './statusBar';
 import { runConsentFlow } from './consentFlow';
+import { DailySprintlyState, DailyStateStore } from './tracking/dailyStateStore';
+import { estimateClaudeCost } from './tracking/pricing';
+
+interface StatusBarUpdater {
+  update(): void;
+}
 
 export function registerCommands(
   context: vscode.ExtensionContext,
   tracker: SessionTracker,
-  statusBar: SprintlyStatusBar,
+  statusBar: StatusBarUpdater,
+  dailyStore: DailyStateStore,
 ): void {
   const refresh = () => statusBar.update();
 
@@ -32,14 +39,22 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.resumeSession',    resume),
     vscode.commands.registerCommand('sprintly.resetSession',     reset),
     vscode.commands.registerCommand('sprintly.showStatusPanel',
-      () => showStatusPanel(tracker)),
+      () => showStatusPanel(tracker, dailyStore)),
   );
 }
 
 // ─── QuickPick Floating Mini Panel ────────────────────────────────────────────
 
-export async function showStatusPanel(tracker: SessionTracker): Promise<void> {
+interface StatusPanelItem extends vscode.QuickPickItem {
+  trackingDetail?: 'session' | 'prompts' | 'failures' | 'tokens';
+}
+
+export async function showStatusPanel(
+  tracker: SessionTracker,
+  dailyStore: DailyStateStore,
+): Promise<void> {
   const s = tracker.get();
+  let daily = dailyStore.get();
 
   const mm  = String(Math.floor(s.durationSeconds / 60)).padStart(2, '0');
   const ss  = String(s.durationSeconds % 60).padStart(2, '0');
@@ -50,7 +65,7 @@ export async function showStatusPanel(tracker: SessionTracker): Promise<void> {
   const editBar = makeProgressBar(editPct);
 
   // ── Create QuickPick ────────────────────────────────────────────────────────
-  const qp = vscode.window.createQuickPick();
+  const qp = vscode.window.createQuickPick<StatusPanelItem>();
   qp.title              = '$(pulse) Sprintly';
   qp.placeholder        = '';
   qp.ignoreFocusOut     = false;   // dismiss on click-away, like Copilot's card
@@ -76,10 +91,10 @@ export async function showStatusPanel(tracker: SessionTracker): Promise<void> {
   });
 
   // ── Items ──────────────────────────────────────────────────────────────────
-  qp.items = [
+  const buildItems = (): StatusPanelItem[] => [
 
     // ── Status section ───────────────────────────────────────────────────────
-    { label: 'Status', kind: vscode.QuickPickItemKind.Separator },
+    { label: 'Status', kind: vscode.QuickPickItemKind.Separator, alwaysShow: true },
     {
       label:       '$(record) Session',
       description: !s.isRecording ? 'Idle'
@@ -120,9 +135,33 @@ export async function showStatusPanel(tracker: SessionTracker): Promise<void> {
       description: tracker.archetype(),
       alwaysShow:  true,
     },
+    {
+      label: '$(code) Session split today',
+      description: `Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}`,
+      trackingDetail: 'session',
+      alwaysShow: true,
+    },
+    {
+      label: '$(copilot) Agent prompts today',
+      description: `Claude ${daily.agentPrompts.claudeCode} · Codex ${daily.agentPrompts.codex}`,
+      trackingDetail: 'prompts',
+      alwaysShow: true,
+    },
+    {
+      label: '$(error) Build failures today',
+      description: describeFailures(daily),
+      trackingDetail: 'failures',
+      alwaysShow: true,
+    },
+    {
+      label: '$(symbol-numeric) Token estimate today',
+      description: describeTokenEstimate(daily),
+      trackingDetail: 'tokens',
+      alwaysShow: true,
+    },
 
     // ── Options section — all existing commands ───────────────────────────────
-    { label: 'Options', kind: vscode.QuickPickItemKind.Separator },
+    { label: 'Options', kind: vscode.QuickPickItemKind.Separator, alwaysShow: true },
     {
       label:      '$(play) Start Session',
       alwaysShow: true,
@@ -145,17 +184,25 @@ export async function showStatusPanel(tracker: SessionTracker): Promise<void> {
     },
 
     // ── Actions section ───────────────────────────────────────────────────────
-    { label: 'Actions', kind: vscode.QuickPickItemKind.Separator },
+    { label: 'Actions', kind: vscode.QuickPickItemKind.Separator, alwaysShow: true },
     {
       label:      '$(settings-gear) Open Settings',
       alwaysShow: true,
     },
   ];
+  qp.items = buildItems();
 
   // ── Routing ─────────────────────────────────────────────────────────────────
   qp.onDidAccept(() => {
     const selected = qp.selectedItems[0];
     if (!selected) { qp.hide(); return; }
+
+    if (selected.trackingDetail) {
+      const detail = selected.trackingDetail;
+      qp.hide();
+      void showTrackingDetail(detail, dailyStore.get());
+      return;
+    }
 
     const label = selected.label;
 
@@ -171,5 +218,122 @@ export async function showStatusPanel(tracker: SessionTracker): Promise<void> {
     qp.hide();
   });
 
+  const dailySubscription = dailyStore.onDidUpdate((next) => {
+    daily = next;
+    qp.items = buildItems();
+  });
+  qp.onDidHide(() => {
+    dailySubscription.dispose();
+    qp.dispose();
+  });
   qp.show();
+}
+
+async function showTrackingDetail(
+  detail: NonNullable<StatusPanelItem['trackingDetail']>,
+  daily: Readonly<DailySprintlyState>,
+): Promise<void> {
+  let title: string;
+  let items: vscode.QuickPickItem[];
+  if (detail === 'session') {
+    title = 'Sprintly · Session Split Today';
+    items = [
+      { label: '$(code) Hardcode', description: formatDailyDuration(daily.session.hardcodeMs) },
+      { label: '$(sparkle) Vibecode', description: formatDailyDuration(daily.session.vibecodeMs) },
+    ];
+  } else if (detail === 'prompts') {
+    title = 'Sprintly · Agent Prompts Today';
+    items = [
+      { label: '$(copilot) Claude Code', description: String(daily.agentPrompts.claudeCode) },
+      { label: '$(terminal) Codex', description: String(daily.agentPrompts.codex) },
+    ];
+  } else if (detail === 'failures') {
+    title = 'Sprintly · Build Failures Today';
+    const categories = Object.entries(daily.buildFailures.byCategory)
+      .sort((left, right) => right[1] - left[1]);
+    items = categories.length > 0
+      ? categories.map(([category, count]) => ({
+        label: `$(error) ${formatCategory(category)}`,
+        description: String(count),
+      }))
+      : [{ label: '$(check) No failures', description: '0' }];
+  } else {
+    title = 'Sprintly · Token Estimate Today';
+    const claude = daily.tokenStats.claudeCode;
+    items = claude
+      ? [
+        {
+          label: '$(copilot) Claude total (est.)',
+          description: `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost(estimateClaudeCost(claude))}`,
+        },
+        { label: '  Claude input (est.)', description: formatTokens(claude.input) },
+        { label: '  Claude output (est.)', description: formatTokens(claude.output) },
+        { label: '  Claude cache read (est.)', description: formatTokens(claude.cacheRead) },
+        { label: '  Claude cache create (est.)', description: formatTokens(claude.cacheCreate) },
+      ]
+      : [{ label: '$(copilot) Claude tokens (est.)', description: '—' }];
+    items.push({
+      label: '$(terminal) Codex tokens (est.)',
+      description: daily.tokenStats.codex === 'unavailable'
+        ? '—'
+        : formatTokens(daily.tokenStats.codex.total),
+    });
+  }
+
+  await vscode.window.showQuickPick(items, {
+    title,
+    placeHolder: '',
+    matchOnDescription: false,
+    matchOnDetail: false,
+  });
+}
+
+function describeFailures(daily: Readonly<DailySprintlyState>): string {
+  const top = Object.entries(daily.buildFailures.byCategory)
+    .sort((left, right) => right[1] - left[1])[0];
+  return top
+    ? `${daily.buildFailures.total} · Top: ${formatCategory(top[0])} ${top[1]}`
+    : '0 · No failures';
+}
+
+function describeTokenEstimate(daily: Readonly<DailySprintlyState>): string {
+  const claude = daily.tokenStats.claudeCode;
+  const claudeText = claude
+    ? `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost(estimateClaudeCost(claude))}`
+    : '—';
+  const codexText = daily.tokenStats.codex === 'unavailable'
+    ? '—'
+    : formatTokens(daily.tokenStats.codex.total);
+  return `est. Claude ${claudeText} · Codex ${codexText}`;
+}
+
+function totalClaudeTokens(
+  tokens: NonNullable<DailySprintlyState['tokenStats']['claudeCode']>,
+): number {
+  return tokens.input + tokens.output + tokens.cacheRead + tokens.cacheCreate;
+}
+
+function formatDailyDuration(milliseconds: number): string {
+  const totalMinutes = Math.floor(milliseconds / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `~${(tokens / 1_000_000).toFixed(1)}M tokens`;
+  }
+  if (tokens >= 1_000) {
+    return `~${(tokens / 1_000).toFixed(1)}K tokens`;
+  }
+  return `~${Math.round(tokens)} tokens`;
+}
+
+function formatCost(cost: number): string {
+  return `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+}
+
+function formatCategory(category: string): string {
+  return category.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

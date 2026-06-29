@@ -3,18 +3,22 @@
   "displayName": "Sprintly",
   "description": "Strava for developers — track your coding sessions.",
   "version": "0.1.0",
-  "engines": { "vscode": "^1.74.0" },
+  "engines": { "vscode": "^1.93.0" },
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
-      { "command": "sprintly.startSession",  "title": "Sprintly: Start Session" },
-      { "command": "sprintly.stopSession",   "title": "Sprintly: Stop Session" },
-      { "command": "sprintly.pauseSession",  "title": "Sprintly: Pause Session" },
-      { "command": "sprintly.resumeSession", "title": "Sprintly: Resume Session" },
+      { "command": "sprintly.startSession",    "title": "Sprintly: Start Session" },
+      { "command": "sprintly.stopSession",     "title": "Sprintly: Stop Session" },
+      { "command": "sprintly.pauseSession",    "title": "Sprintly: Pause Session" },
+      { "command": "sprintly.resumeSession",   "title": "Sprintly: Resume Session" },
       { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
-      { "command": "sprintly.showStatusPanel",  "title": "Show Status Panel", "category": "Sprintly" }
+      { "command": "sprintly.showStatusPanel", "title": "Show Status Panel",      "category": "Sprintly" },
+      { "command": "sprintly.openPanel",       "title": "Open Sprintly Panel",    "category": "Sprintly" },
+      { "command": "sprintly.shareSession",    "title": "Share Session",          "category": "Sprintly" },
+      { "command": "sprintly.saveSession",     "title": "Save Session",           "category": "Sprintly" },
+      { "command": "sprintly.devOpenScreen",   "title": "Dev: Jump to Screen",    "category": "Sprintly" }
     ],
     "configuration": {
       "title": "Sprintly",
@@ -28,6 +32,30 @@
           "type": "boolean",
           "default": true,
           "description": "Show recording prompt when VS Code opens."
+        },
+        "sprintly.pricing.claudeCode.input": {
+          "type": "number",
+          "minimum": 0,
+          "default": 3.0,
+          "description": "Estimated Claude Code input-token price in USD per million tokens."
+        },
+        "sprintly.pricing.claudeCode.output": {
+          "type": "number",
+          "minimum": 0,
+          "default": 15.0,
+          "description": "Estimated Claude Code output-token price in USD per million tokens."
+        },
+        "sprintly.pricing.claudeCode.cacheRead": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.3,
+          "description": "Estimated Claude Code cache-read token price in USD per million tokens."
+        },
+        "sprintly.pricing.claudeCode.cacheCreate": {
+          "type": "number",
+          "minimum": 0,
+          "default": 3.75,
+          "description": "Estimated Claude Code cache-creation token price in USD per million tokens."
         }
       }
     }
@@ -39,7 +67,7 @@
   },
   "devDependencies": {
     "@types/node": "^18.x",
-    "@types/vscode": "^1.74.0",
+    "@types/vscode": "^1.93.0",
     "typescript": "^5.x"
   }
 }

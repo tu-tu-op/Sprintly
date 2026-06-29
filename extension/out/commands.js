@@ -5,7 +5,8 @@ exports.showStatusPanel = showStatusPanel;
 const vscode = require("vscode");
 const statusBar_1 = require("./statusBar");
 const consentFlow_1 = require("./consentFlow");
-function registerCommands(context, tracker, statusBar) {
+const pricing_1 = require("./tracking/pricing");
+function registerCommands(context, tracker, statusBar, dailyStore) {
     const refresh = () => statusBar.update();
     const start = () => {
         tracker.start();
@@ -21,11 +22,11 @@ function registerCommands(context, tracker, statusBar) {
         vscode.window.showInformationMessage(`✅ Sprintly — Session ended. ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
     };
     const reset = () => { tracker.reset(); refresh(); };
-    context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', () => (0, consentFlow_1.runConsentFlow)(context, start)), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.showStatusPanel', () => showStatusPanel(tracker)));
+    context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', () => (0, consentFlow_1.runConsentFlow)(context, start)), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.showStatusPanel', () => showStatusPanel(tracker, dailyStore)));
 }
-// ─── QuickPick Floating Mini Panel ────────────────────────────────────────────
-async function showStatusPanel(tracker) {
+async function showStatusPanel(tracker, dailyStore) {
     const s = tracker.get();
+    let daily = dailyStore.get();
     const mm = String(Math.floor(s.durationSeconds / 60)).padStart(2, '0');
     const ss = String(s.durationSeconds % 60).padStart(2, '0');
     const dur = `${mm}:${ss}`;
@@ -57,9 +58,9 @@ async function showStatusPanel(tracker) {
         qp.hide();
     });
     // ── Items ──────────────────────────────────────────────────────────────────
-    qp.items = [
+    const buildItems = () => [
         // ── Status section ───────────────────────────────────────────────────────
-        { label: 'Status', kind: vscode.QuickPickItemKind.Separator },
+        { label: 'Status', kind: vscode.QuickPickItemKind.Separator, alwaysShow: true },
         {
             label: '$(record) Session',
             description: !s.isRecording ? 'Idle'
@@ -100,8 +101,32 @@ async function showStatusPanel(tracker) {
             description: tracker.archetype(),
             alwaysShow: true,
         },
+        {
+            label: '$(code) Session split today',
+            description: `Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}`,
+            trackingDetail: 'session',
+            alwaysShow: true,
+        },
+        {
+            label: '$(copilot) Agent prompts today',
+            description: `Claude ${daily.agentPrompts.claudeCode} · Codex ${daily.agentPrompts.codex}`,
+            trackingDetail: 'prompts',
+            alwaysShow: true,
+        },
+        {
+            label: '$(error) Build failures today',
+            description: describeFailures(daily),
+            trackingDetail: 'failures',
+            alwaysShow: true,
+        },
+        {
+            label: '$(symbol-numeric) Token estimate today',
+            description: describeTokenEstimate(daily),
+            trackingDetail: 'tokens',
+            alwaysShow: true,
+        },
         // ── Options section — all existing commands ───────────────────────────────
-        { label: 'Options', kind: vscode.QuickPickItemKind.Separator },
+        { label: 'Options', kind: vscode.QuickPickItemKind.Separator, alwaysShow: true },
         {
             label: '$(play) Start Session',
             alwaysShow: true,
@@ -123,17 +148,24 @@ async function showStatusPanel(tracker) {
             alwaysShow: true,
         },
         // ── Actions section ───────────────────────────────────────────────────────
-        { label: 'Actions', kind: vscode.QuickPickItemKind.Separator },
+        { label: 'Actions', kind: vscode.QuickPickItemKind.Separator, alwaysShow: true },
         {
             label: '$(settings-gear) Open Settings',
             alwaysShow: true,
         },
     ];
+    qp.items = buildItems();
     // ── Routing ─────────────────────────────────────────────────────────────────
     qp.onDidAccept(() => {
         const selected = qp.selectedItems[0];
         if (!selected) {
             qp.hide();
+            return;
+        }
+        if (selected.trackingDetail) {
+            const detail = selected.trackingDetail;
+            qp.hide();
+            void showTrackingDetail(detail, dailyStore.get());
             return;
         }
         const label = selected.label;
@@ -157,6 +189,112 @@ async function showStatusPanel(tracker) {
         }
         qp.hide();
     });
+    const dailySubscription = dailyStore.onDidUpdate((next) => {
+        daily = next;
+        qp.items = buildItems();
+    });
+    qp.onDidHide(() => {
+        dailySubscription.dispose();
+        qp.dispose();
+    });
     qp.show();
+}
+async function showTrackingDetail(detail, daily) {
+    let title;
+    let items;
+    if (detail === 'session') {
+        title = 'Sprintly · Session Split Today';
+        items = [
+            { label: '$(code) Hardcode', description: formatDailyDuration(daily.session.hardcodeMs) },
+            { label: '$(sparkle) Vibecode', description: formatDailyDuration(daily.session.vibecodeMs) },
+        ];
+    }
+    else if (detail === 'prompts') {
+        title = 'Sprintly · Agent Prompts Today';
+        items = [
+            { label: '$(copilot) Claude Code', description: String(daily.agentPrompts.claudeCode) },
+            { label: '$(terminal) Codex', description: String(daily.agentPrompts.codex) },
+        ];
+    }
+    else if (detail === 'failures') {
+        title = 'Sprintly · Build Failures Today';
+        const categories = Object.entries(daily.buildFailures.byCategory)
+            .sort((left, right) => right[1] - left[1]);
+        items = categories.length > 0
+            ? categories.map(([category, count]) => ({
+                label: `$(error) ${formatCategory(category)}`,
+                description: String(count),
+            }))
+            : [{ label: '$(check) No failures', description: '0' }];
+    }
+    else {
+        title = 'Sprintly · Token Estimate Today';
+        const claude = daily.tokenStats.claudeCode;
+        items = claude
+            ? [
+                {
+                    label: '$(copilot) Claude total (est.)',
+                    description: `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`,
+                },
+                { label: '  Claude input (est.)', description: formatTokens(claude.input) },
+                { label: '  Claude output (est.)', description: formatTokens(claude.output) },
+                { label: '  Claude cache read (est.)', description: formatTokens(claude.cacheRead) },
+                { label: '  Claude cache create (est.)', description: formatTokens(claude.cacheCreate) },
+            ]
+            : [{ label: '$(copilot) Claude tokens (est.)', description: '—' }];
+        items.push({
+            label: '$(terminal) Codex tokens (est.)',
+            description: daily.tokenStats.codex === 'unavailable'
+                ? '—'
+                : formatTokens(daily.tokenStats.codex.total),
+        });
+    }
+    await vscode.window.showQuickPick(items, {
+        title,
+        placeHolder: '',
+        matchOnDescription: false,
+        matchOnDetail: false,
+    });
+}
+function describeFailures(daily) {
+    const top = Object.entries(daily.buildFailures.byCategory)
+        .sort((left, right) => right[1] - left[1])[0];
+    return top
+        ? `${daily.buildFailures.total} · Top: ${formatCategory(top[0])} ${top[1]}`
+        : '0 · No failures';
+}
+function describeTokenEstimate(daily) {
+    const claude = daily.tokenStats.claudeCode;
+    const claudeText = claude
+        ? `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`
+        : '—';
+    const codexText = daily.tokenStats.codex === 'unavailable'
+        ? '—'
+        : formatTokens(daily.tokenStats.codex.total);
+    return `est. Claude ${claudeText} · Codex ${codexText}`;
+}
+function totalClaudeTokens(tokens) {
+    return tokens.input + tokens.output + tokens.cacheRead + tokens.cacheCreate;
+}
+function formatDailyDuration(milliseconds) {
+    const totalMinutes = Math.floor(milliseconds / 60000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+function formatTokens(tokens) {
+    if (tokens >= 1000000) {
+        return `~${(tokens / 1000000).toFixed(1)}M tokens`;
+    }
+    if (tokens >= 1000) {
+        return `~${(tokens / 1000).toFixed(1)}K tokens`;
+    }
+    return `~${Math.round(tokens)} tokens`;
+}
+function formatCost(cost) {
+    return `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+}
+function formatCategory(category) {
+    return category.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 //# sourceMappingURL=commands.js.map
