@@ -22,6 +22,7 @@ interface WatchedDirectory {
 }
 
 interface ParsedBatch {
+  detected: boolean;
   promptCount: number;
   claudeUsage: ClaudeTokenStats;
   hasClaudeUsage: boolean;
@@ -172,6 +173,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     }
     const storeBatch: AgentLogBatch = {
       sourceId: source.id,
+      detected: batch.detected,
       filePath,
       nextOffset: startOffset + processedBytes,
       promptCount: batch.promptCount,
@@ -211,6 +213,9 @@ export class AgentLogWatcher implements vscode.Disposable {
     if (timestamp === null || timestamp < bounds.start || timestamp >= bounds.end) {
       return;
     }
+    // ASSUMPTION: an agent is considered in use only after a valid entry from that
+    // agent is found for the current local day, rather than from installation alone.
+    batch.detected = true;
     if (source.isPromptEntry(parsed)) {
       batch.promptCount += 1;
     }
@@ -236,6 +241,7 @@ function addUsage(batch: ParsedBatch, usage: TokenUsage): void {
 
 function emptyParsedBatch(): ParsedBatch {
   return {
+    detected: false,
     promptCount: 0,
     claudeUsage: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 },
     hasClaudeUsage: false,

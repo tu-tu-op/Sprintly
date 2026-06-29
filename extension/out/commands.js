@@ -109,7 +109,7 @@ async function showStatusPanel(tracker, dailyStore) {
         },
         {
             label: '$(copilot) Agent prompts today',
-            description: `Claude ${daily.agentPrompts.claudeCode} · Codex ${daily.agentPrompts.codex}`,
+            description: describeAgentPrompts(daily),
             trackingDetail: 'prompts',
             alwaysShow: true,
         },
@@ -211,10 +211,12 @@ async function showTrackingDetail(detail, daily) {
     }
     else if (detail === 'prompts') {
         title = 'Sprintly · Agent Prompts Today';
-        items = [
-            { label: '$(copilot) Claude Code', description: String(daily.agentPrompts.claudeCode) },
-            { label: '$(terminal) Codex', description: String(daily.agentPrompts.codex) },
-        ];
+        items = daily.detectedAgents.map((agent) => agent === 'claude-code'
+            ? { label: '$(copilot) Claude Code', description: String(daily.agentPrompts.claudeCode) }
+            : { label: '$(terminal) Codex', description: String(daily.agentPrompts.codex) });
+        if (items.length === 0) {
+            items = [{ label: '$(search) Detecting local agent logs', description: 'No agent detected today' }];
+        }
     }
     else if (detail === 'failures') {
         title = 'Sprintly · Build Failures Today';
@@ -230,24 +232,35 @@ async function showTrackingDetail(detail, daily) {
     else {
         title = 'Sprintly · Token Estimate Today';
         const claude = daily.tokenStats.claudeCode;
-        items = claude
-            ? [
-                {
-                    label: '$(copilot) Claude total (est.)',
-                    description: `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`,
-                },
-                { label: '  Claude input (est.)', description: formatTokens(claude.input) },
-                { label: '  Claude output (est.)', description: formatTokens(claude.output) },
-                { label: '  Claude cache read (est.)', description: formatTokens(claude.cacheRead) },
-                { label: '  Claude cache create (est.)', description: formatTokens(claude.cacheCreate) },
-            ]
-            : [{ label: '$(copilot) Claude tokens (est.)', description: '—' }];
-        items.push({
-            label: '$(terminal) Codex tokens (est.)',
-            description: daily.tokenStats.codex === 'unavailable'
-                ? '—'
-                : formatTokens(daily.tokenStats.codex.total),
-        });
+        items = [];
+        if (daily.detectedAgents.includes('claude-code')) {
+            items.push(...(claude
+                ? [
+                    {
+                        label: '$(copilot) Claude total (est.)',
+                        description: `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`,
+                    },
+                    { label: '  Claude input (est.)', description: formatTokens(claude.input) },
+                    { label: '  Claude output (est.)', description: formatTokens(claude.output) },
+                    { label: '  Claude cache read (est.)', description: formatTokens(claude.cacheRead) },
+                    { label: '  Claude cache create (est.)', description: formatTokens(claude.cacheCreate) },
+                ]
+                : [{ label: '$(copilot) Claude tokens (est.)', description: '—' }]));
+        }
+        if (daily.detectedAgents.includes('codex')) {
+            items.push({
+                label: '$(terminal) Codex tokens (est.)',
+                description: daily.tokenStats.codex === 'unavailable'
+                    ? '—'
+                    : formatTokens(daily.tokenStats.codex.total),
+            });
+        }
+        if (items.length === 0) {
+            items = [{
+                    label: '$(search) Detecting token estimate source',
+                    description: 'No agent detected today · est. unavailable',
+                }];
+        }
     }
     await vscode.window.showQuickPick(items, {
         title,
@@ -263,15 +276,26 @@ function describeFailures(daily) {
         ? `${daily.buildFailures.total} · Top: ${formatCategory(top[0])} ${top[1]}`
         : '0 · No failures';
 }
+function describeAgentPrompts(daily) {
+    const agents = daily.detectedAgents.map((agent) => agent === 'claude-code'
+        ? `Claude ${daily.agentPrompts.claudeCode}`
+        : `Codex ${daily.agentPrompts.codex}`);
+    return agents.length > 0 ? agents.join(' · ') : 'Detecting local agent logs…';
+}
 function describeTokenEstimate(daily) {
-    const claude = daily.tokenStats.claudeCode;
-    const claudeText = claude
-        ? `${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`
-        : '—';
-    const codexText = daily.tokenStats.codex === 'unavailable'
-        ? '—'
-        : formatTokens(daily.tokenStats.codex.total);
-    return `est. Claude ${claudeText} · Codex ${codexText}`;
+    const agents = [];
+    if (daily.detectedAgents.includes('claude-code')) {
+        const claude = daily.tokenStats.claudeCode;
+        agents.push(claude
+            ? `Claude ${formatTokens(totalClaudeTokens(claude))} · est. ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`
+            : 'Claude — (est.)');
+    }
+    if (daily.detectedAgents.includes('codex')) {
+        agents.push(daily.tokenStats.codex === 'unavailable'
+            ? 'Codex — (est.)'
+            : `Codex ${formatTokens(daily.tokenStats.codex.total)} (est.)`);
+    }
+    return agents.length > 0 ? agents.join(' · ') : 'Detecting agent logs · est. unavailable';
 }
 function totalClaudeTokens(tokens) {
     return tokens.input + tokens.output + tokens.cacheRead + tokens.cacheCreate;

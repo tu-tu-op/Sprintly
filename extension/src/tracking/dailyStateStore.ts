@@ -36,6 +36,7 @@ export interface AgentFileCursor {
 
 export interface DailySprintlyState {
   dateKey: string;
+  detectedAgents: AgentId[];
   session: SessionSplit;
   agentPrompts: AgentPromptStats;
   buildFailures: BuildFailureStats;
@@ -45,6 +46,7 @@ export interface DailySprintlyState {
 
 export interface AgentLogBatch {
   sourceId: string;
+  detected: boolean;
   filePath: string;
   nextOffset: number;
   promptCount: number;
@@ -106,6 +108,11 @@ export class DailyStateStore implements vscode.Disposable {
   applyAgentLogBatch(batch: AgentLogBatch): void {
     this.mutate((state) => {
       state.agentFileCursors[batch.filePath] = { offset: Math.max(0, batch.nextOffset) };
+      if (batch.detected
+        && isAgentId(batch.sourceId)
+        && !state.detectedAgents.includes(batch.sourceId)) {
+        state.detectedAgents.push(batch.sourceId);
+      }
       if (batch.sourceId === 'claude-code') {
         state.agentPrompts.claudeCode += batch.promptCount;
         if (batch.claudeUsage) {
@@ -193,6 +200,7 @@ function localDateKey(now = new Date()): string {
 function createEmptyState(): DailySprintlyState {
   return {
     dateKey: localDateKey(),
+    detectedAgents: [],
     session: { hardcodeMs: 0, vibecodeMs: 0 },
     agentPrompts: { claudeCode: 0, codex: 0 },
     buildFailures: { total: 0, byCategory: {} },
@@ -215,6 +223,11 @@ function parseStoredState(value: unknown): DailySprintlyState {
   const tokenStats = isRecord(value.tokenStats) ? value.tokenStats : {};
   return {
     dateKey: value.dateKey,
+    detectedAgents: parseDetectedAgents(
+      value.detectedAgents,
+      prompts,
+      tokenStats,
+    ),
     session: {
       hardcodeMs: safeNumber(session.hardcodeMs),
       vibecodeMs: safeNumber(session.vibecodeMs),
@@ -282,6 +295,7 @@ function parseNumberRecord(value: unknown): Record<string, number> {
 function cloneState(state: DailySprintlyState): DailySprintlyState {
   return {
     dateKey: state.dateKey,
+    detectedAgents: [...state.detectedAgents],
     session: { ...state.session },
     agentPrompts: { ...state.agentPrompts },
     buildFailures: {
@@ -311,4 +325,27 @@ function safeNumber(value: unknown): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseDetectedAgents(
+  value: unknown,
+  prompts: Record<string, unknown>,
+  tokenStats: Record<string, unknown>,
+): AgentId[] {
+  if (Array.isArray(value)) {
+    return value.filter((agent): agent is AgentId => isAgentId(agent));
+  }
+
+  const detected: AgentId[] = [];
+  if (safeNumber(prompts.claudeCode) > 0 || parseClaudeTokens(tokenStats.claudeCode)) {
+    detected.push('claude-code');
+  }
+  if (safeNumber(prompts.codex) > 0 || parseCodexTokens(tokenStats.codex) !== 'unavailable') {
+    detected.push('codex');
+  }
+  return detected;
+}
+
+function isAgentId(value: unknown): value is AgentId {
+  return value === 'claude-code' || value === 'codex';
 }

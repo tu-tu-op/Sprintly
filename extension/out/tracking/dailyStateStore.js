@@ -48,6 +48,11 @@ class DailyStateStore {
     applyAgentLogBatch(batch) {
         this.mutate((state) => {
             state.agentFileCursors[batch.filePath] = { offset: Math.max(0, batch.nextOffset) };
+            if (batch.detected
+                && isAgentId(batch.sourceId)
+                && !state.detectedAgents.includes(batch.sourceId)) {
+                state.detectedAgents.push(batch.sourceId);
+            }
             if (batch.sourceId === 'claude-code') {
                 state.agentPrompts.claudeCode += batch.promptCount;
                 if (batch.claudeUsage) {
@@ -124,6 +129,7 @@ function localDateKey(now = new Date()) {
 function createEmptyState() {
     return {
         dateKey: localDateKey(),
+        detectedAgents: [],
         session: { hardcodeMs: 0, vibecodeMs: 0 },
         agentPrompts: { claudeCode: 0, codex: 0 },
         buildFailures: { total: 0, byCategory: {} },
@@ -144,6 +150,7 @@ function parseStoredState(value) {
     const tokenStats = isRecord(value.tokenStats) ? value.tokenStats : {};
     return {
         dateKey: value.dateKey,
+        detectedAgents: parseDetectedAgents(value.detectedAgents, prompts, tokenStats),
         session: {
             hardcodeMs: safeNumber(session.hardcodeMs),
             vibecodeMs: safeNumber(session.vibecodeMs),
@@ -206,6 +213,7 @@ function parseNumberRecord(value) {
 function cloneState(state) {
     return {
         dateKey: state.dateKey,
+        detectedAgents: [...state.detectedAgents],
         session: { ...state.session },
         agentPrompts: { ...state.agentPrompts },
         buildFailures: {
@@ -231,5 +239,21 @@ function safeNumber(value) {
 }
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function parseDetectedAgents(value, prompts, tokenStats) {
+    if (Array.isArray(value)) {
+        return value.filter((agent) => isAgentId(agent));
+    }
+    const detected = [];
+    if (safeNumber(prompts.claudeCode) > 0 || parseClaudeTokens(tokenStats.claudeCode)) {
+        detected.push('claude-code');
+    }
+    if (safeNumber(prompts.codex) > 0 || parseCodexTokens(tokenStats.codex) !== 'unavailable') {
+        detected.push('codex');
+    }
+    return detected;
+}
+function isAgentId(value) {
+    return value === 'claude-code' || value === 'codex';
 }
 //# sourceMappingURL=dailyStateStore.js.map

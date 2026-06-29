@@ -90,20 +90,28 @@ function buildTooltip(
   if (daily) {
     const topFailure = Object.entries(daily.buildFailures.byCategory)
       .sort((left, right) => right[1] - left[1])[0];
-    const claude = daily.tokenStats.claudeCode;
-    const claudeEstimate = claude
-      ? `${formatTokenEstimate(claude.input + claude.output + claude.cacheRead + claude.cacheCreate)} · est. $${estimateClaudeCost(claude).toFixed(2)}`
-      : '— (est.)';
-    const codexEstimate = daily.tokenStats.codex === 'unavailable'
-      ? '— (est.)'
-      : `${formatTokenEstimate(daily.tokenStats.codex.total)} (est.)`;
+    const detectedAgents = daily.detectedAgents;
+    const promptSummary = detectedAgents.map((agent) => agent === 'claude-code'
+      ? `Claude ${daily.agentPrompts.claudeCode}`
+      : `Codex ${daily.agentPrompts.codex}`).join(' · ');
+    const tokenEstimates: string[] = [];
+    if (detectedAgents.includes('claude-code')) {
+      const claude = daily.tokenStats.claudeCode;
+      tokenEstimates.push(claude
+        ? `Claude ${formatTokenEstimate(claude.input + claude.output + claude.cacheRead + claude.cacheCreate)} · est. $${estimateClaudeCost(claude).toFixed(2)}`
+        : 'Claude — (est.)');
+    }
+    if (detectedAgents.includes('codex')) {
+      tokenEstimates.push(daily.tokenStats.codex === 'unavailable'
+        ? 'Codex — (est.)'
+        : `Codex ${formatTokenEstimate(daily.tokenStats.codex.total)} (est.)`);
+    }
 
     tooltip.appendMarkdown('### Today\n\n');
     tooltip.appendMarkdown(`Session split: **Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}**\n\n`);
-    tooltip.appendMarkdown(`Agent prompts: **Claude ${daily.agentPrompts.claudeCode} · Codex ${daily.agentPrompts.codex}**\n\n`);
+    tooltip.appendMarkdown(`Agent prompts: **${promptSummary || 'Detecting local agent logs…'}**\n\n`);
     tooltip.appendMarkdown(`Build failures: **${daily.buildFailures.total}${topFailure ? ` · Top: ${formatFailureCategory(topFailure[0])} ${topFailure[1]}` : ''}**\n\n`);
-    tooltip.appendMarkdown(`Claude tokens estimate: **${claudeEstimate}**\n\n`);
-    tooltip.appendMarkdown(`Codex tokens estimate: **${codexEstimate}**\n\n`);
+    tooltip.appendMarkdown(`Token estimate: **${tokenEstimates.join(' · ') || 'Detecting agent logs · est. unavailable'}**\n\n`);
   }
 
   tooltip.appendMarkdown('[Open Panel](command:sprintly.openPanel) · [Settings](command:workbench.action.openSettings?%5B%22sprintly%22%5D)');

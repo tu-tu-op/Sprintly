@@ -140,6 +140,7 @@ class AgentLogWatcher {
         }
         const storeBatch = {
             sourceId: source.id,
+            detected: batch.detected,
             filePath,
             nextOffset: startOffset + processedBytes,
             promptCount: batch.promptCount,
@@ -169,6 +170,9 @@ class AgentLogWatcher {
         if (timestamp === null || timestamp < bounds.start || timestamp >= bounds.end) {
             return;
         }
+        // ASSUMPTION: an agent is considered in use only after a valid entry from that
+        // agent is found for the current local day, rather than from installation alone.
+        batch.detected = true;
         if (source.isPromptEntry(parsed)) {
             batch.promptCount += 1;
         }
@@ -194,6 +198,7 @@ function addUsage(batch, usage) {
 }
 function emptyParsedBatch() {
     return {
+        detected: false,
         promptCount: 0,
         claudeUsage: { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 },
         hasClaudeUsage: false,
