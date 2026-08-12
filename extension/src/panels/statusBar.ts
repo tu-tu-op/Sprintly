@@ -61,6 +61,8 @@ export function buildStatusBarPresentation(
 }
 
 class SprintlyPanelStatusBar implements SprintlyStatusBarController {
+  private tooltipFingerprint: string | undefined;
+
   constructor(
     private readonly item: vscode.StatusBarItem,
     private readonly tracker: SessionTracker,
@@ -74,10 +76,17 @@ class SprintlyPanelStatusBar implements SprintlyStatusBarController {
         this.sessionStore.get(),
       );
       this.item.text = presentation.text;
-      this.item.tooltip = buildTooltip(presentation.summary);
+      const nextTooltipFingerprint = buildTooltipFingerprint(presentation.summary);
+      if (nextTooltipFingerprint !== this.tooltipFingerprint) {
+        this.tooltipFingerprint = nextTooltipFingerprint;
+        this.item.tooltip = buildTooltip(presentation.summary);
+      }
     } catch {
       this.item.text = '$(circle-outline) Sprintly · Ready';
-      this.item.tooltip = 'Open Sprintly Quick Panel';
+      if (this.tooltipFingerprint !== 'fallback') {
+        this.tooltipFingerprint = 'fallback';
+        this.item.tooltip = 'Open Sprintly Quick Panel';
+      }
     }
   }
 
@@ -92,7 +101,10 @@ function buildTooltip(summary: SessionPanelSummary): vscode.MarkdownString {
   tooltip.supportThemeIcons = true;
 
   tooltip.appendMarkdown(`### $(pulse) Sprintly · ${summary.scope}\n\n`);
-  tooltip.appendMarkdown(`**${summary.status}** · \`${summary.duration}\`\n\n`);
+  const duration = summary.status === 'In progress'
+    ? 'Live timer shown in the status bar'
+    : `\`${summary.duration}\``;
+  tooltip.appendMarkdown(`**${summary.status}** · ${duration}\n\n`);
   tooltip.appendMarkdown(`Coding split: **${summary.codingSplit}**\n\n`);
   tooltip.appendMarkdown(`Agent prompts: **${summary.promptUsage}**\n\n`);
   tooltip.appendMarkdown(`Token usage: **${summary.tokenUsage}**\n\n`);
@@ -102,4 +114,13 @@ function buildTooltip(summary: SessionPanelSummary): vscode.MarkdownString {
     + '[Settings](command:workbench.action.openSettings?%5B%22sprintly%22%5D)',
   );
   return tooltip;
+}
+
+function buildTooltipFingerprint(summary: SessionPanelSummary): string {
+  return JSON.stringify({
+    ...summary,
+    // The status-bar timer changes every second. Excluding its active duration
+    // prevents VS Code from dismissing and recreating an open hover tooltip.
+    duration: summary.status === 'In progress' ? 'live' : summary.duration,
+  });
 }

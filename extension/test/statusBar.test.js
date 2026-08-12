@@ -3,6 +3,7 @@ const Module = require('node:module');
 const test = require('node:test');
 
 let createdItem;
+let tooltipAssignments;
 
 class TestMarkdownString {
   constructor(value = '') {
@@ -20,9 +21,16 @@ const vscodeStub = {
   StatusBarAlignment: { Left: 1 },
   window: {
     createStatusBarItem: () => {
+      tooltipAssignments = 0;
+      let tooltip;
       createdItem = {
         show() {},
         dispose() {},
+        get tooltip() { return tooltip; },
+        set tooltip(value) {
+          tooltipAssignments += 1;
+          tooltip = value;
+        },
       };
       return createdItem;
     },
@@ -103,4 +111,32 @@ test('click and hover link target the canonical Quick Panel command', () => {
   assert.equal(createdItem.command, SESSION_PANEL_COMMAND);
   assert.match(createdItem.tooltip.value, /command:sprintly\.showStatusPanel/);
   assert.match(createdItem.tooltip.value, /Agent prompts: \*\*2 total · Claude 0 · Codex 2\*\*/);
+});
+
+test('one-second timer ticks do not recreate the open hover tooltip', () => {
+  let currentStats = stats();
+  let trackerUpdate;
+  const tracker = {
+    get: () => currentStats,
+    onDidUpdate: {
+      event: (listener) => {
+        trackerUpdate = listener;
+        return { dispose() {} };
+      },
+    },
+  };
+  const sessionStore = {
+    get: state,
+    onDidUpdate: () => ({ dispose() {} }),
+  };
+
+  initStatusBar({ subscriptions: [] }, tracker, sessionStore);
+  assert.equal(tooltipAssignments, 1);
+
+  currentStats = { ...currentStats, durationSeconds: 76 };
+  trackerUpdate(currentStats);
+
+  assert.equal(createdItem.text, '$(debug-start) Sprintly · 01:16');
+  assert.equal(tooltipAssignments, 1);
+  assert.match(createdItem.tooltip.value, /Live timer shown in the status bar/);
 });
