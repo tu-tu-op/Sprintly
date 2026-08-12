@@ -9,19 +9,33 @@ const pricing_1 = require("./tracking/pricing");
 function registerCommands(context, tracker, statusBar, dailyStore) {
     const refresh = () => statusBar.update();
     const start = () => {
+        dailyStore.startSession();
         tracker.start();
         refresh();
         vscode.window.showInformationMessage('🏃 Sprintly — Session started!');
     };
-    const pause = () => { tracker.pause(); refresh(); };
-    const resume = () => { tracker.resume(); refresh(); };
+    const pause = () => {
+        dailyStore.pauseSession();
+        tracker.pause();
+        refresh();
+    };
+    const resume = () => {
+        dailyStore.resumeSession();
+        tracker.resume();
+        refresh();
+    };
     const stop = () => {
         const s = tracker.get();
+        dailyStore.stopSession();
         tracker.stop();
         refresh();
         vscode.window.showInformationMessage(`✅ Sprintly — Session ended. ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
     };
-    const reset = () => { tracker.reset(); refresh(); };
+    const reset = () => {
+        dailyStore.resetSession();
+        tracker.reset();
+        refresh();
+    };
     context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', () => (0, consentFlow_1.runConsentFlow)(context, start)), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.showStatusPanel', () => showStatusPanel(tracker, dailyStore)));
 }
 async function showStatusPanel(tracker, dailyStore) {

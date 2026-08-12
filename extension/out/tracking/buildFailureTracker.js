@@ -46,9 +46,13 @@ class BuildFailureTracker {
             || event.exitCode === 0) {
             return;
         }
+        const occurredAt = Date.now();
+        if (!this.store.isCapturing(occurredAt)) {
+            return;
+        }
         const output = await readBoundedOutput(event.execution);
         const category = categorizeFailure(output);
-        this.store.addBuildFailure(category);
+        this.store.addBuildFailure(category, occurredAt);
     }
 }
 exports.BuildFailureTracker = BuildFailureTracker;

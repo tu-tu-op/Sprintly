@@ -53,9 +53,13 @@ export class BuildFailureTracker implements vscode.Disposable {
       return;
     }
 
+    const occurredAt = Date.now();
+    if (!this.store.isCapturing(occurredAt)) {
+      return;
+    }
     const output = await readBoundedOutput(event.execution);
     const category = categorizeFailure(output);
-    this.store.addBuildFailure(category);
+    this.store.addBuildFailure(category, occurredAt);
   }
 }
 

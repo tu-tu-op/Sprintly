@@ -50,6 +50,7 @@ function activate(context) {
         }
     }));
     (0, consentFlow_1.runConsentFlow)(context, () => {
+        dailyStore.startSession();
         tracker.start();
         statusBar.update();
         showInfo('Sprintly recording started.');

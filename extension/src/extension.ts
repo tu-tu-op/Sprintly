@@ -70,6 +70,7 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   runConsentFlow(context, () => {
+    dailyStore.startSession();
     tracker.start();
     statusBar.update();
     showInfo('Sprintly recording started.');
