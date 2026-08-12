@@ -16,7 +16,10 @@ function activate(context) {
     const tracker = new sessionTracker_1.SessionTracker();
     const dailyStore = new dailyStateStore_1.DailyStateStore(context.globalState);
     const sessionActivityTracker = new sessionActivityTracker_1.SessionActivityTracker(dailyStore);
-    const agentLogWatcher = new agentLogWatcher_1.AgentLogWatcher(dailyStore);
+    const workspacePaths = (vscode.workspace.workspaceFolders ?? [])
+        .filter((folder) => folder.uri.scheme === 'file')
+        .map((folder) => folder.uri.fsPath);
+    const agentLogWatcher = new agentLogWatcher_1.AgentLogWatcher(dailyStore, undefined, workspacePaths);
     const buildFailureTracker = new buildFailureTracker_1.BuildFailureTracker(dailyStore);
     const statusBar = (0, statusBar_1.initStatusBar)(context, tracker, dailyStore);
     context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore);

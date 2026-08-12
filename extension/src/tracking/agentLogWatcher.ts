@@ -30,9 +30,16 @@ interface ParsedBatch {
   codexUsageAvailable: boolean;
 }
 
+interface FileWorkspaceState {
+  path?: string;
+  matches: boolean;
+  resolved: boolean;
+}
+
 export class AgentLogWatcher implements vscode.Disposable {
   private readonly watchers: fs.FSWatcher[] = [];
   private readonly watchedDirectories: WatchedDirectory[] = [];
+  private readonly fileWorkspaces = new Map<string, FileWorkspaceState>();
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private scanPromise: Promise<void> | undefined;
   private scanRequested = false;
@@ -42,7 +49,12 @@ export class AgentLogWatcher implements vscode.Disposable {
   constructor(
     private readonly store: DailyStateStore,
     private readonly sources: readonly AgentLogSource[] = AGENT_LOG_SOURCES,
-  ) {}
+    workspacePaths: readonly string[] = getOpenWorkspacePaths(),
+  ) {
+    this.workspacePaths = workspacePaths.map(normalizeFsPath);
+  }
+
+  private readonly workspacePaths: string[];
 
   start(): Promise<void> {
     this.startPromise ??= this.initialize();
@@ -146,6 +158,8 @@ export class AgentLogWatcher implements vscode.Disposable {
       return;
     }
 
+    const fileWorkspace = await this.resolveFileWorkspace(source, filePath, startOffset);
+
     const batch = emptyParsedBatch();
     let processedBytes = 0;
     let remainder = Buffer.alloc(0);
@@ -165,7 +179,7 @@ export class AgentLogWatcher implements vscode.Disposable {
         const complete = combined.subarray(0, finalNewline + 1);
         remainder = combined.subarray(finalNewline + 1);
         processedBytes += complete.length;
-        this.processCompleteLines(source, complete.toString('utf8'), batch);
+        this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace);
       }
     } catch {
       return;
@@ -174,7 +188,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     if (remainder.length > 0) {
       const parsed = parseJsonLine(remainder.toString('utf8').replace(/\r$/, ''));
       if (parsed) {
-        this.processParsedLine(source, parsed, batch);
+        this.processParsedLine(source, parsed, batch, fileWorkspace);
         processedBytes += remainder.length;
       }
     }
@@ -200,6 +214,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     source: AgentLogSource,
     text: string,
     batch: ParsedBatch,
+    fileWorkspace: FileWorkspaceState,
   ): void {
     for (const line of text.split('\n')) {
       const trimmed = line.replace(/\r$/, '').trim();
@@ -208,7 +223,7 @@ export class AgentLogWatcher implements vscode.Disposable {
       }
       const parsed = parseJsonLine(trimmed);
       if (parsed) {
-        this.processParsedLine(source, parsed, batch);
+        this.processParsedLine(source, parsed, batch, fileWorkspace);
       }
     }
   }
@@ -217,7 +232,12 @@ export class AgentLogWatcher implements vscode.Disposable {
     source: AgentLogSource,
     parsed: Record<string, unknown>,
     batch: ParsedBatch,
+    fileWorkspace: FileWorkspaceState,
   ): void {
+    this.updateFileWorkspace(source, parsed, fileWorkspace);
+    if (!fileWorkspace.matches) {
+      return;
+    }
     const timestamp = source.extractTimestamp(parsed);
     // ASSUMPTION: entries without a trustworthy timestamp are ignored instead of being
     // assigned to a session, which prevents old or schema-unknown lines from inflating totals.
@@ -239,6 +259,68 @@ export class AgentLogWatcher implements vscode.Disposable {
     if (usage) {
       addUsage(batch, usage);
     }
+  }
+
+  private async resolveFileWorkspace(
+    source: AgentLogSource,
+    filePath: string,
+    startOffset: number,
+  ): Promise<FileWorkspaceState> {
+    const cached = this.fileWorkspaces.get(filePath);
+    if (cached) {
+      return cached;
+    }
+
+    const state: FileWorkspaceState = {
+      matches: false,
+      resolved: this.workspacePaths.length === 0,
+    };
+    if (this.workspacePaths.length === 0) {
+      this.fileWorkspaces.set(filePath, state);
+      return state;
+    }
+
+    // Persisted cursors may begin after the session metadata containing cwd.
+    // Read a bounded header to recover the file's workspace association.
+    if (startOffset > 0) {
+      try {
+        const handle = await fs.promises.open(filePath, 'r');
+        try {
+          const header = Buffer.alloc(Math.min(startOffset, 64 * 1024));
+          const { bytesRead } = await handle.read(header, 0, header.length, 0);
+          for (const line of header.subarray(0, bytesRead).toString('utf8').split('\n')) {
+            const parsed = parseJsonLine(line.trim());
+            if (parsed) {
+              this.updateFileWorkspace(source, parsed, state);
+              if (state.resolved) break;
+            }
+          }
+        } finally {
+          await handle.close();
+        }
+      } catch {
+        // The appended scan can still resolve cwd from a later context entry.
+      }
+    }
+    this.fileWorkspaces.set(filePath, state);
+    return state;
+  }
+
+  private updateFileWorkspace(
+    source: AgentLogSource,
+    parsed: Record<string, unknown>,
+    state: FileWorkspaceState,
+  ): void {
+    const candidate = source.extractWorkspacePath(parsed);
+    if (!candidate) {
+      return;
+    }
+    state.path = candidate;
+    state.matches = this.workspacePaths.some((workspacePath) => isPathInWorkspace(
+      workspacePath,
+      normalizeFsPath(candidate),
+    ));
+    state.resolved = true;
   }
 }
 
@@ -305,4 +387,22 @@ async function isDirectory(directory: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function getOpenWorkspacePaths(): string[] {
+  return (vscode.workspace.workspaceFolders ?? [])
+    .filter((folder) => folder.uri.scheme === 'file')
+    .map((folder) => folder.uri.fsPath);
+}
+
+export function isPathInWorkspace(workspacePath: string, candidatePath: string): boolean {
+  const normalizedWorkspace = normalizeFsPath(workspacePath);
+  const normalizedCandidate = normalizeFsPath(candidatePath);
+  return normalizedCandidate === normalizedWorkspace
+    || normalizedCandidate.startsWith(`${normalizedWorkspace}${path.sep}`);
+}
+
+function normalizeFsPath(value: string): string {
+  const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+  return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }

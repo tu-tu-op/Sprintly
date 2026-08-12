@@ -24,7 +24,10 @@ export function activate(context: vscode.ExtensionContext): void {
   const tracker = new SessionTracker();
   const dailyStore = new DailyStateStore(context.globalState);
   const sessionActivityTracker = new SessionActivityTracker(dailyStore);
-  const agentLogWatcher = new AgentLogWatcher(dailyStore);
+  const workspacePaths = (vscode.workspace.workspaceFolders ?? [])
+    .filter((folder) => folder.uri.scheme === 'file')
+    .map((folder) => folder.uri.fsPath);
+  const agentLogWatcher = new AgentLogWatcher(dailyStore, undefined, workspacePaths);
   const buildFailureTracker = new BuildFailureTracker(dailyStore);
   const statusBar = initStatusBar(context, tracker, dailyStore);
 

@@ -1,18 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentLogWatcher = void 0;
+exports.isPathInWorkspace = isPathInWorkspace;
 const fs = require("fs");
 const path = require("path");
+const vscode = require("vscode");
 const agentLogSources_1 = require("./agentLogSources");
 const POLL_INTERVAL_MS = 5000;
 class AgentLogWatcher {
-    constructor(store, sources = agentLogSources_1.AGENT_LOG_SOURCES) {
+    constructor(store, sources = agentLogSources_1.AGENT_LOG_SOURCES, workspacePaths = getOpenWorkspacePaths()) {
         this.store = store;
         this.sources = sources;
         this.watchers = [];
         this.watchedDirectories = [];
+        this.fileWorkspaces = new Map();
         this.scanRequested = false;
         this.disposed = false;
+        this.workspacePaths = workspacePaths.map(normalizeFsPath);
     }
     start() {
         this.startPromise ?? (this.startPromise = this.initialize());
@@ -110,6 +114,7 @@ class AgentLogWatcher {
         if (stat.size === startOffset || stat.size === 0) {
             return;
         }
+        const fileWorkspace = await this.resolveFileWorkspace(source, filePath, startOffset);
         const batch = emptyParsedBatch();
         let processedBytes = 0;
         let remainder = Buffer.alloc(0);
@@ -129,7 +134,7 @@ class AgentLogWatcher {
                 const complete = combined.subarray(0, finalNewline + 1);
                 remainder = combined.subarray(finalNewline + 1);
                 processedBytes += complete.length;
-                this.processCompleteLines(source, complete.toString('utf8'), batch);
+                this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace);
             }
         }
         catch {
@@ -138,7 +143,7 @@ class AgentLogWatcher {
         if (remainder.length > 0) {
             const parsed = (0, agentLogSources_1.parseJsonLine)(remainder.toString('utf8').replace(/\r$/, ''));
             if (parsed) {
-                this.processParsedLine(source, parsed, batch);
+                this.processParsedLine(source, parsed, batch, fileWorkspace);
                 processedBytes += remainder.length;
             }
         }
@@ -158,7 +163,7 @@ class AgentLogWatcher {
         };
         this.store.applyAgentLogBatch(storeBatch);
     }
-    processCompleteLines(source, text, batch) {
+    processCompleteLines(source, text, batch, fileWorkspace) {
         for (const line of text.split('\n')) {
             const trimmed = line.replace(/\r$/, '').trim();
             if (!trimmed) {
@@ -166,11 +171,15 @@ class AgentLogWatcher {
             }
             const parsed = (0, agentLogSources_1.parseJsonLine)(trimmed);
             if (parsed) {
-                this.processParsedLine(source, parsed, batch);
+                this.processParsedLine(source, parsed, batch, fileWorkspace);
             }
         }
     }
-    processParsedLine(source, parsed, batch) {
+    processParsedLine(source, parsed, batch, fileWorkspace) {
+        this.updateFileWorkspace(source, parsed, fileWorkspace);
+        if (!fileWorkspace.matches) {
+            return;
+        }
         const timestamp = source.extractTimestamp(parsed);
         // ASSUMPTION: entries without a trustworthy timestamp are ignored instead of being
         // assigned to a session, which prevents old or schema-unknown lines from inflating totals.
@@ -192,6 +201,56 @@ class AgentLogWatcher {
         if (usage) {
             addUsage(batch, usage);
         }
+    }
+    async resolveFileWorkspace(source, filePath, startOffset) {
+        const cached = this.fileWorkspaces.get(filePath);
+        if (cached) {
+            return cached;
+        }
+        const state = {
+            matches: false,
+            resolved: this.workspacePaths.length === 0,
+        };
+        if (this.workspacePaths.length === 0) {
+            this.fileWorkspaces.set(filePath, state);
+            return state;
+        }
+        // Persisted cursors may begin after the session metadata containing cwd.
+        // Read a bounded header to recover the file's workspace association.
+        if (startOffset > 0) {
+            try {
+                const handle = await fs.promises.open(filePath, 'r');
+                try {
+                    const header = Buffer.alloc(Math.min(startOffset, 64 * 1024));
+                    const { bytesRead } = await handle.read(header, 0, header.length, 0);
+                    for (const line of header.subarray(0, bytesRead).toString('utf8').split('\n')) {
+                        const parsed = (0, agentLogSources_1.parseJsonLine)(line.trim());
+                        if (parsed) {
+                            this.updateFileWorkspace(source, parsed, state);
+                            if (state.resolved)
+                                break;
+                        }
+                    }
+                }
+                finally {
+                    await handle.close();
+                }
+            }
+            catch {
+                // The appended scan can still resolve cwd from a later context entry.
+            }
+        }
+        this.fileWorkspaces.set(filePath, state);
+        return state;
+    }
+    updateFileWorkspace(source, parsed, state) {
+        const candidate = source.extractWorkspacePath(parsed);
+        if (!candidate) {
+            return;
+        }
+        state.path = candidate;
+        state.matches = this.workspacePaths.some((workspacePath) => isPathInWorkspace(workspacePath, normalizeFsPath(candidate)));
+        state.resolved = true;
     }
 }
 exports.AgentLogWatcher = AgentLogWatcher;
@@ -258,5 +317,20 @@ async function isDirectory(directory) {
     catch {
         return false;
     }
+}
+function getOpenWorkspacePaths() {
+    return (vscode.workspace.workspaceFolders ?? [])
+        .filter((folder) => folder.uri.scheme === 'file')
+        .map((folder) => folder.uri.fsPath);
+}
+function isPathInWorkspace(workspacePath, candidatePath) {
+    const normalizedWorkspace = normalizeFsPath(workspacePath);
+    const normalizedCandidate = normalizeFsPath(candidatePath);
+    return normalizedCandidate === normalizedWorkspace
+        || normalizedCandidate.startsWith(`${normalizedWorkspace}${path.sep}`);
+}
+function normalizeFsPath(value) {
+    const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 //# sourceMappingURL=agentLogWatcher.js.map

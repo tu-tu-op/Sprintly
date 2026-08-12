@@ -10,6 +10,7 @@ exports.CLAUDE_CODE_SOURCE = {
         path.join(os.homedir(), '.claude', 'projects'),
         path.join(os.homedir(), '.config', 'claude', 'projects'),
     ],
+    extractWorkspacePath: extractCommonWorkspacePath,
     isPromptEntry: (line) => {
         if (line.type === 'summary' || line.type !== 'user') {
             return false;
@@ -46,6 +47,7 @@ exports.CLAUDE_CODE_SOURCE = {
 exports.CODEX_SOURCE = {
     id: 'codex',
     getLogDirs: () => [path.join(os.homedir(), '.codex', 'sessions')],
+    extractWorkspacePath: extractCommonWorkspacePath,
     isPromptEntry: isCodexPrompt,
     extractTimestamp: extractCommonTimestamp,
     extractUsage: extractCodexUsage,
@@ -145,6 +147,20 @@ function extractCommonTimestamp(line) {
     }
     const parsed = Date.parse(raw);
     return Number.isFinite(parsed) ? parsed : null;
+}
+function extractCommonWorkspacePath(line) {
+    const payload = asRecord(line.payload);
+    const message = asRecord(line.message);
+    const raw = line.cwd
+        ?? line.project_path
+        ?? line.projectPath
+        ?? line.workspace_path
+        ?? line.workspacePath
+        ?? payload?.cwd
+        ?? payload?.project_path
+        ?? payload?.projectPath
+        ?? message?.cwd;
+    return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
 }
 function readContent(value) {
     return value.content ?? value.text ?? value.message ?? value.input;

@@ -11,6 +11,7 @@ export type TokenUsage =
 export interface AgentLogSource {
   id: string;
   getLogDirs(): string[];
+  extractWorkspacePath(line: ParsedJsonLine): string | null;
   isPromptEntry(line: ParsedJsonLine): boolean;
   extractTimestamp(line: ParsedJsonLine): number | null;
   extractUsage(line: ParsedJsonLine): TokenUsage | null;
@@ -22,6 +23,7 @@ export const CLAUDE_CODE_SOURCE: AgentLogSource = {
     path.join(os.homedir(), '.claude', 'projects'),
     path.join(os.homedir(), '.config', 'claude', 'projects'),
   ],
+  extractWorkspacePath: extractCommonWorkspacePath,
   isPromptEntry: (line) => {
     if (line.type === 'summary' || line.type !== 'user') {
       return false;
@@ -59,6 +61,7 @@ export const CLAUDE_CODE_SOURCE: AgentLogSource = {
 export const CODEX_SOURCE: AgentLogSource = {
   id: 'codex',
   getLogDirs: () => [path.join(os.homedir(), '.codex', 'sessions')],
+  extractWorkspacePath: extractCommonWorkspacePath,
   isPromptEntry: isCodexPrompt,
   extractTimestamp: extractCommonTimestamp,
   extractUsage: extractCodexUsage,
@@ -175,6 +178,21 @@ function extractCommonTimestamp(line: ParsedJsonLine): number | null {
   }
   const parsed = Date.parse(raw);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractCommonWorkspacePath(line: ParsedJsonLine): string | null {
+  const payload = asRecord(line.payload);
+  const message = asRecord(line.message);
+  const raw = line.cwd
+    ?? line.project_path
+    ?? line.projectPath
+    ?? line.workspace_path
+    ?? line.workspacePath
+    ?? payload?.cwd
+    ?? payload?.project_path
+    ?? payload?.projectPath
+    ?? message?.cwd;
+  return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
 }
 
 function readContent(value: ParsedJsonLine): unknown {
