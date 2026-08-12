@@ -3,7 +3,19 @@ import * as vscode from 'vscode';
 export type CodingCategory = 'hardcode' | 'vibecode';
 export type AgentId = 'claude-code' | 'codex';
 
+export interface SessionPauseInterval {
+  startedAt: number;
+  endedAt: number | null;
+}
+
 export interface SessionSplit {
+  id: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  isActive: boolean;
+  isPaused: boolean;
+  pausedAt: number | null;
+  pauses: SessionPauseInterval[];
   hardcodeMs: number;
   vibecodeMs: number;
 }
@@ -34,8 +46,8 @@ export interface AgentFileCursor {
   offset: number;
 }
 
-export interface DailySprintlyState {
-  dateKey: string;
+export interface SprintlySessionState {
+  version: 3;
   detectedAgents: AgentId[];
   session: SessionSplit;
   agentPrompts: AgentPromptStats;
@@ -44,48 +56,119 @@ export interface DailySprintlyState {
   agentFileCursors: Record<string, AgentFileCursor>;
 }
 
+/** @deprecated Kept as a source-compatible alias while consumers migrate names. */
+export type DailySprintlyState = SprintlySessionState;
+
 export interface AgentLogBatch {
   sourceId: string;
   detected: boolean;
   filePath: string;
   nextOffset: number;
   promptCount: number;
+  sessionId?: string;
   claudeUsage?: ClaudeTokenStats;
   codexTokens?: number;
   codexUsageAvailable?: boolean;
 }
 
-const DAILY_STATE_KEY = 'sprintly.dailyTracking.v2';
+const SESSION_STATE_KEY = 'sprintly.sessionTracking.v3';
+const LEGACY_DAILY_STATE_KEY = 'sprintly.dailyTracking.v2';
 
 export class DailyStateStore implements vscode.Disposable {
-  private state: DailySprintlyState;
+  private state: SprintlySessionState;
   private persistQueue: Promise<void> = Promise.resolve();
-  private midnightTimer: ReturnType<typeof setTimeout> | undefined;
-  private readonly updateEmitter = new vscode.EventEmitter<Readonly<DailySprintlyState>>();
+  private readonly updateEmitter = new vscode.EventEmitter<Readonly<SprintlySessionState>>();
 
   readonly onDidUpdate = this.updateEmitter.event;
 
-  constructor(private readonly globalState: vscode.Memento) {
-    this.state = parseStoredState(globalState.get<unknown>(DAILY_STATE_KEY));
-    if (this.state.dateKey !== localDateKey()) {
-      this.state = createEmptyState();
+  constructor(
+    private readonly globalState: vscode.Memento,
+    private readonly now: () => number = Date.now,
+  ) {
+    const stored = globalState.get<unknown>(SESSION_STATE_KEY)
+      ?? globalState.get<unknown>(LEGACY_DAILY_STATE_KEY);
+    this.state = parseStoredState(stored);
+
+    // Extension shutdown is not guaranteed to run. Never carry an active capture
+    // window into a later VS Code process, because that would merge two sessions.
+    if (this.state.session.isActive) {
+      closeSession(this.state.session, this.now());
       this.persist();
     }
-    this.scheduleMidnightReset();
   }
 
-  get(): Readonly<DailySprintlyState> {
-    this.ensureCurrentDay();
+  get(): Readonly<SprintlySessionState> {
     return cloneState(this.state);
   }
 
   getAgentFileOffset(filePath: string): number {
-    this.ensureCurrentDay();
     return this.state.agentFileCursors[filePath]?.offset ?? 0;
   }
 
-  addSessionDuration(category: CodingCategory, durationMs: number): void {
-    if (!Number.isFinite(durationMs) || durationMs <= 0) {
+  startSession(startedAt = this.now(), id = createSessionId(startedAt)): string {
+    const timestamp = safeTimestamp(startedAt, this.now());
+    const cursors = cloneCursors(this.state.agentFileCursors);
+    this.state = createEmptyState(cursors);
+    this.state.session = {
+      ...emptySession(),
+      id,
+      startedAt: timestamp,
+      isActive: true,
+    };
+    this.persistAndEmit();
+    return id;
+  }
+
+  pauseSession(pausedAt = this.now()): void {
+    const session = this.state.session;
+    if (!session.isActive || session.isPaused || session.startedAt === null) {
+      return;
+    }
+    const timestamp = Math.max(session.startedAt, safeTimestamp(pausedAt, this.now()));
+    session.isPaused = true;
+    session.pausedAt = timestamp;
+    session.pauses.push({ startedAt: timestamp, endedAt: null });
+    this.persistAndEmit();
+  }
+
+  resumeSession(resumedAt = this.now()): void {
+    const session = this.state.session;
+    if (!session.isActive || !session.isPaused) {
+      return;
+    }
+    closePause(session, safeTimestamp(resumedAt, this.now()));
+    this.persistAndEmit();
+  }
+
+  stopSession(endedAt = this.now()): void {
+    if (!this.state.session.isActive) {
+      return;
+    }
+    closeSession(this.state.session, safeTimestamp(endedAt, this.now()));
+    this.persistAndEmit();
+  }
+
+  resetSession(): void {
+    this.state = createEmptyState(cloneCursors(this.state.agentFileCursors));
+    this.persistAndEmit();
+  }
+
+  isCapturing(timestamp = this.now()): boolean {
+    return sessionContainsTimestamp(this.state.session, timestamp);
+  }
+
+  getSessionIdForTimestamp(timestamp: number): string | null {
+    return this.isCapturing(timestamp) ? this.state.session.id : null;
+  }
+
+  addSessionDuration(
+    category: CodingCategory,
+    durationMs: number,
+    observedAt = this.now(),
+  ): void {
+    if (!Number.isFinite(durationMs)
+      || durationMs <= 0
+      || !this.isCapturing(observedAt)) {
       return;
     }
     this.mutate((state) => {
@@ -97,7 +180,10 @@ export class DailyStateStore implements vscode.Disposable {
     });
   }
 
-  addBuildFailure(category: string): void {
+  addBuildFailure(category: string, occurredAt = this.now()): void {
+    if (!this.isCapturing(occurredAt)) {
+      return;
+    }
     this.mutate((state) => {
       state.buildFailures.total += 1;
       state.buildFailures.byCategory[category] =
@@ -108,6 +194,14 @@ export class DailyStateStore implements vscode.Disposable {
   applyAgentLogBatch(batch: AgentLogBatch): void {
     this.mutate((state) => {
       state.agentFileCursors[batch.filePath] = { offset: Math.max(0, batch.nextOffset) };
+
+      const belongsToSession = batch.sessionId
+        ? batch.sessionId === state.session.id
+        : sessionContainsTimestamp(state.session, this.now());
+      if (!belongsToSession) {
+        return;
+      }
+
       if (batch.detected
         && isAgentId(batch.sourceId)
         && !state.detectedAgents.includes(batch.sourceId)) {
@@ -137,75 +231,59 @@ export class DailyStateStore implements vscode.Disposable {
   }
 
   dispose(): void {
-    if (this.midnightTimer) {
-      clearTimeout(this.midnightTimer);
-    }
     this.updateEmitter.dispose();
   }
 
-  private mutate(change: (state: DailySprintlyState) => void): void {
-    this.ensureCurrentDay();
+  private mutate(change: (state: SprintlySessionState) => void): void {
     change(this.state);
+    this.persistAndEmit();
+  }
+
+  private persistAndEmit(): void {
     this.persist();
     this.updateEmitter.fire(this.get());
-  }
-
-  private ensureCurrentDay(): void {
-    if (this.state.dateKey === localDateKey()) {
-      return;
-    }
-    this.state = createEmptyState();
-    this.persist();
-    this.updateEmitter.fire(cloneState(this.state));
-    this.scheduleMidnightReset();
-  }
-
-  private scheduleMidnightReset(): void {
-    if (this.midnightTimer) {
-      clearTimeout(this.midnightTimer);
-    }
-    const now = new Date();
-    const nextMidnight = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate() + 1,
-      0, 0, 0, 25,
-    );
-    this.midnightTimer = setTimeout(() => {
-      this.ensureCurrentDay();
-    }, Math.max(1, nextMidnight.getTime() - now.getTime()));
   }
 
   private persist(): void {
     const snapshot = cloneState(this.state);
     this.persistQueue = this.persistQueue
-      .then(() => this.globalState.update(DAILY_STATE_KEY, snapshot))
+      .then(() => this.globalState.update(SESSION_STATE_KEY, snapshot))
       .then(() => undefined, () => undefined);
   }
 }
 
+// Retained for downstream callers until the log watcher is session-window aware.
 export function localDayBounds(now = new Date()): { start: number; end: number } {
   const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
   return { start, end };
 }
 
-function localDateKey(now = new Date()): string {
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function createEmptyState(): DailySprintlyState {
+function createEmptyState(
+  agentFileCursors: Record<string, AgentFileCursor> = {},
+): SprintlySessionState {
   return {
-    dateKey: localDateKey(),
+    version: 3,
     detectedAgents: [],
-    session: { hardcodeMs: 0, vibecodeMs: 0 },
+    session: emptySession(),
     agentPrompts: { claudeCode: 0, codex: 0 },
     buildFailures: { total: 0, byCategory: {} },
     tokenStats: { claudeCode: null, codex: 'unavailable' },
-    agentFileCursors: {},
+    agentFileCursors,
+  };
+}
+
+function emptySession(): SessionSplit {
+  return {
+    id: null,
+    startedAt: null,
+    endedAt: null,
+    isActive: false,
+    isPaused: false,
+    pausedAt: null,
+    pauses: [],
+    hardcodeMs: 0,
+    vibecodeMs: 0,
   };
 }
 
@@ -213,22 +291,33 @@ function emptyClaudeTokens(): ClaudeTokenStats {
   return { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
 }
 
-function parseStoredState(value: unknown): DailySprintlyState {
-  if (!isRecord(value) || typeof value.dateKey !== 'string') {
+function parseStoredState(value: unknown): SprintlySessionState {
+  if (!isRecord(value)) {
     return createEmptyState();
   }
-  const session = isRecord(value.session) ? value.session : {};
+
+  const cursors = parseCursors(value.agentFileCursors);
+  if (value.version !== 3 || !isRecord(value.session)) {
+    // Daily v2 totals cannot be assigned to a specific recording. Preserve only
+    // file cursors so migration does not replay historical agent logs.
+    return createEmptyState(cursors);
+  }
+
+  const session = value.session;
   const prompts = isRecord(value.agentPrompts) ? value.agentPrompts : {};
   const failures = isRecord(value.buildFailures) ? value.buildFailures : {};
   const tokenStats = isRecord(value.tokenStats) ? value.tokenStats : {};
   return {
-    dateKey: value.dateKey,
-    detectedAgents: parseDetectedAgents(
-      value.detectedAgents,
-      prompts,
-      tokenStats,
-    ),
+    version: 3,
+    detectedAgents: parseDetectedAgents(value.detectedAgents),
     session: {
+      id: typeof session.id === 'string' ? session.id : null,
+      startedAt: nullableTimestamp(session.startedAt),
+      endedAt: nullableTimestamp(session.endedAt),
+      isActive: session.isActive === true,
+      isPaused: session.isPaused === true,
+      pausedAt: nullableTimestamp(session.pausedAt),
+      pauses: parsePauses(session.pauses),
       hardcodeMs: safeNumber(session.hardcodeMs),
       vibecodeMs: safeNumber(session.vibecodeMs),
     },
@@ -244,7 +333,7 @@ function parseStoredState(value: unknown): DailySprintlyState {
       claudeCode: parseClaudeTokens(tokenStats.claudeCode),
       codex: parseCodexTokens(tokenStats.codex),
     },
-    agentFileCursors: parseCursors(value.agentFileCursors),
+    agentFileCursors: cursors,
   };
 }
 
@@ -279,6 +368,30 @@ function parseCursors(value: unknown): Record<string, AgentFileCursor> {
   return cursors;
 }
 
+function cloneCursors(
+  cursors: Record<string, AgentFileCursor>,
+): Record<string, AgentFileCursor> {
+  return Object.fromEntries(
+    Object.entries(cursors).map(([filePath, cursor]) => [filePath, { ...cursor }]),
+  );
+}
+
+function parsePauses(value: unknown): SessionPauseInterval[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((pause) => {
+    if (!isRecord(pause)) {
+      return [];
+    }
+    const startedAt = nullableTimestamp(pause.startedAt);
+    if (startedAt === null) {
+      return [];
+    }
+    return [{ startedAt, endedAt: nullableTimestamp(pause.endedAt) }];
+  });
+}
+
 function parseNumberRecord(value: unknown): Record<string, number> {
   if (!isRecord(value)) {
     return {};
@@ -292,11 +405,14 @@ function parseNumberRecord(value: unknown): Record<string, number> {
   return result;
 }
 
-function cloneState(state: DailySprintlyState): DailySprintlyState {
+function cloneState(state: SprintlySessionState): SprintlySessionState {
   return {
-    dateKey: state.dateKey,
+    version: 3,
     detectedAgents: [...state.detectedAgents],
-    session: { ...state.session },
+    session: {
+      ...state.session,
+      pauses: state.session.pauses.map((pause) => ({ ...pause })),
+    },
     agentPrompts: { ...state.agentPrompts },
     buildFailures: {
       total: state.buildFailures.total,
@@ -310,13 +426,56 @@ function cloneState(state: DailySprintlyState): DailySprintlyState {
         ? 'unavailable'
         : { ...state.tokenStats.codex },
     },
-    agentFileCursors: Object.fromEntries(
-      Object.entries(state.agentFileCursors).map(([filePath, cursor]) => [
-        filePath,
-        { ...cursor },
-      ]),
-    ),
+    agentFileCursors: cloneCursors(state.agentFileCursors),
   };
+}
+
+function closePause(session: SessionSplit, endedAt: number): void {
+  const pause = session.pauses[session.pauses.length - 1];
+  if (pause && pause.endedAt === null) {
+    pause.endedAt = Math.max(pause.startedAt, endedAt);
+  }
+  session.isPaused = false;
+  session.pausedAt = null;
+}
+
+function closeSession(session: SessionSplit, endedAt: number): void {
+  if (session.isPaused) {
+    closePause(session, endedAt);
+  }
+  session.isActive = false;
+  session.isPaused = false;
+  session.endedAt = session.startedAt === null
+    ? endedAt
+    : Math.max(session.startedAt, endedAt);
+}
+
+function sessionContainsTimestamp(session: SessionSplit, timestamp: number): boolean {
+  if (!Number.isFinite(timestamp)
+    || session.id === null
+    || session.startedAt === null
+    || timestamp < session.startedAt
+    || (session.endedAt !== null && timestamp > session.endedAt)) {
+    return false;
+  }
+  return !session.pauses.some((pause) => timestamp >= pause.startedAt
+    && (pause.endedAt === null || timestamp < pause.endedAt));
+}
+
+function createSessionId(startedAt: number): string {
+  return `${Math.round(startedAt).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function safeTimestamp(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : fallback;
+}
+
+function nullableTimestamp(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : null;
 }
 
 function safeNumber(value: unknown): number {
@@ -327,23 +486,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function parseDetectedAgents(
-  value: unknown,
-  prompts: Record<string, unknown>,
-  tokenStats: Record<string, unknown>,
-): AgentId[] {
-  if (Array.isArray(value)) {
-    return value.filter((agent): agent is AgentId => isAgentId(agent));
-  }
-
-  const detected: AgentId[] = [];
-  if (safeNumber(prompts.claudeCode) > 0 || parseClaudeTokens(tokenStats.claudeCode)) {
-    detected.push('claude-code');
-  }
-  if (safeNumber(prompts.codex) > 0 || parseCodexTokens(tokenStats.codex) !== 'unavailable') {
-    detected.push('codex');
-  }
-  return detected;
+function parseDetectedAgents(value: unknown): AgentId[] {
+  return Array.isArray(value)
+    ? value.filter((agent): agent is AgentId => isAgentId(agent))
+    : [];
 }
 
 function isAgentId(value: unknown): value is AgentId {

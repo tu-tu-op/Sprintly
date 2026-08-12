@@ -3,30 +3,84 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DailyStateStore = void 0;
 exports.localDayBounds = localDayBounds;
 const vscode = require("vscode");
-const DAILY_STATE_KEY = 'sprintly.dailyTracking.v2';
+const SESSION_STATE_KEY = 'sprintly.sessionTracking.v3';
+const LEGACY_DAILY_STATE_KEY = 'sprintly.dailyTracking.v2';
 class DailyStateStore {
-    constructor(globalState) {
+    constructor(globalState, now = Date.now) {
         this.globalState = globalState;
+        this.now = now;
         this.persistQueue = Promise.resolve();
         this.updateEmitter = new vscode.EventEmitter();
         this.onDidUpdate = this.updateEmitter.event;
-        this.state = parseStoredState(globalState.get(DAILY_STATE_KEY));
-        if (this.state.dateKey !== localDateKey()) {
-            this.state = createEmptyState();
+        const stored = globalState.get(SESSION_STATE_KEY)
+            ?? globalState.get(LEGACY_DAILY_STATE_KEY);
+        this.state = parseStoredState(stored);
+        // Extension shutdown is not guaranteed to run. Never carry an active capture
+        // window into a later VS Code process, because that would merge two sessions.
+        if (this.state.session.isActive) {
+            closeSession(this.state.session, this.now());
             this.persist();
         }
-        this.scheduleMidnightReset();
     }
     get() {
-        this.ensureCurrentDay();
         return cloneState(this.state);
     }
     getAgentFileOffset(filePath) {
-        this.ensureCurrentDay();
         return this.state.agentFileCursors[filePath]?.offset ?? 0;
     }
-    addSessionDuration(category, durationMs) {
-        if (!Number.isFinite(durationMs) || durationMs <= 0) {
+    startSession(startedAt = this.now(), id = createSessionId(startedAt)) {
+        const timestamp = safeTimestamp(startedAt, this.now());
+        const cursors = cloneCursors(this.state.agentFileCursors);
+        this.state = createEmptyState(cursors);
+        this.state.session = {
+            ...emptySession(),
+            id,
+            startedAt: timestamp,
+            isActive: true,
+        };
+        this.persistAndEmit();
+        return id;
+    }
+    pauseSession(pausedAt = this.now()) {
+        const session = this.state.session;
+        if (!session.isActive || session.isPaused || session.startedAt === null) {
+            return;
+        }
+        const timestamp = Math.max(session.startedAt, safeTimestamp(pausedAt, this.now()));
+        session.isPaused = true;
+        session.pausedAt = timestamp;
+        session.pauses.push({ startedAt: timestamp, endedAt: null });
+        this.persistAndEmit();
+    }
+    resumeSession(resumedAt = this.now()) {
+        const session = this.state.session;
+        if (!session.isActive || !session.isPaused) {
+            return;
+        }
+        closePause(session, safeTimestamp(resumedAt, this.now()));
+        this.persistAndEmit();
+    }
+    stopSession(endedAt = this.now()) {
+        if (!this.state.session.isActive) {
+            return;
+        }
+        closeSession(this.state.session, safeTimestamp(endedAt, this.now()));
+        this.persistAndEmit();
+    }
+    resetSession() {
+        this.state = createEmptyState(cloneCursors(this.state.agentFileCursors));
+        this.persistAndEmit();
+    }
+    isCapturing(timestamp = this.now()) {
+        return sessionContainsTimestamp(this.state.session, timestamp);
+    }
+    getSessionIdForTimestamp(timestamp) {
+        return this.isCapturing(timestamp) ? this.state.session.id : null;
+    }
+    addSessionDuration(category, durationMs, observedAt = this.now()) {
+        if (!Number.isFinite(durationMs)
+            || durationMs <= 0
+            || !this.isCapturing(observedAt)) {
             return;
         }
         this.mutate((state) => {
@@ -38,7 +92,10 @@ class DailyStateStore {
             }
         });
     }
-    addBuildFailure(category) {
+    addBuildFailure(category, occurredAt = this.now()) {
+        if (!this.isCapturing(occurredAt)) {
+            return;
+        }
         this.mutate((state) => {
             state.buildFailures.total += 1;
             state.buildFailures.byCategory[category] =
@@ -48,6 +105,12 @@ class DailyStateStore {
     applyAgentLogBatch(batch) {
         this.mutate((state) => {
             state.agentFileCursors[batch.filePath] = { offset: Math.max(0, batch.nextOffset) };
+            const belongsToSession = batch.sessionId
+                ? batch.sessionId === state.session.id
+                : sessionContainsTimestamp(state.session, this.now());
+            if (!belongsToSession) {
+                return;
+            }
             if (batch.detected
                 && isAgentId(batch.sourceId)
                 && !state.detectedAgents.includes(batch.sourceId)) {
@@ -77,81 +140,82 @@ class DailyStateStore {
         });
     }
     dispose() {
-        if (this.midnightTimer) {
-            clearTimeout(this.midnightTimer);
-        }
         this.updateEmitter.dispose();
     }
     mutate(change) {
-        this.ensureCurrentDay();
         change(this.state);
+        this.persistAndEmit();
+    }
+    persistAndEmit() {
         this.persist();
         this.updateEmitter.fire(this.get());
-    }
-    ensureCurrentDay() {
-        if (this.state.dateKey === localDateKey()) {
-            return;
-        }
-        this.state = createEmptyState();
-        this.persist();
-        this.updateEmitter.fire(cloneState(this.state));
-        this.scheduleMidnightReset();
-    }
-    scheduleMidnightReset() {
-        if (this.midnightTimer) {
-            clearTimeout(this.midnightTimer);
-        }
-        const now = new Date();
-        const nextMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 25);
-        this.midnightTimer = setTimeout(() => {
-            this.ensureCurrentDay();
-        }, Math.max(1, nextMidnight.getTime() - now.getTime()));
     }
     persist() {
         const snapshot = cloneState(this.state);
         this.persistQueue = this.persistQueue
-            .then(() => this.globalState.update(DAILY_STATE_KEY, snapshot))
+            .then(() => this.globalState.update(SESSION_STATE_KEY, snapshot))
             .then(() => undefined, () => undefined);
     }
 }
 exports.DailyStateStore = DailyStateStore;
+// Retained for downstream callers until the log watcher is session-window aware.
 function localDayBounds(now = new Date()) {
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
     const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).getTime();
     return { start, end };
 }
-function localDateKey(now = new Date()) {
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-}
-function createEmptyState() {
+function createEmptyState(agentFileCursors = {}) {
     return {
-        dateKey: localDateKey(),
+        version: 3,
         detectedAgents: [],
-        session: { hardcodeMs: 0, vibecodeMs: 0 },
+        session: emptySession(),
         agentPrompts: { claudeCode: 0, codex: 0 },
         buildFailures: { total: 0, byCategory: {} },
         tokenStats: { claudeCode: null, codex: 'unavailable' },
-        agentFileCursors: {},
+        agentFileCursors,
+    };
+}
+function emptySession() {
+    return {
+        id: null,
+        startedAt: null,
+        endedAt: null,
+        isActive: false,
+        isPaused: false,
+        pausedAt: null,
+        pauses: [],
+        hardcodeMs: 0,
+        vibecodeMs: 0,
     };
 }
 function emptyClaudeTokens() {
     return { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
 }
 function parseStoredState(value) {
-    if (!isRecord(value) || typeof value.dateKey !== 'string') {
+    if (!isRecord(value)) {
         return createEmptyState();
     }
-    const session = isRecord(value.session) ? value.session : {};
+    const cursors = parseCursors(value.agentFileCursors);
+    if (value.version !== 3 || !isRecord(value.session)) {
+        // Daily v2 totals cannot be assigned to a specific recording. Preserve only
+        // file cursors so migration does not replay historical agent logs.
+        return createEmptyState(cursors);
+    }
+    const session = value.session;
     const prompts = isRecord(value.agentPrompts) ? value.agentPrompts : {};
     const failures = isRecord(value.buildFailures) ? value.buildFailures : {};
     const tokenStats = isRecord(value.tokenStats) ? value.tokenStats : {};
     return {
-        dateKey: value.dateKey,
-        detectedAgents: parseDetectedAgents(value.detectedAgents, prompts, tokenStats),
+        version: 3,
+        detectedAgents: parseDetectedAgents(value.detectedAgents),
         session: {
+            id: typeof session.id === 'string' ? session.id : null,
+            startedAt: nullableTimestamp(session.startedAt),
+            endedAt: nullableTimestamp(session.endedAt),
+            isActive: session.isActive === true,
+            isPaused: session.isPaused === true,
+            pausedAt: nullableTimestamp(session.pausedAt),
+            pauses: parsePauses(session.pauses),
             hardcodeMs: safeNumber(session.hardcodeMs),
             vibecodeMs: safeNumber(session.vibecodeMs),
         },
@@ -167,7 +231,7 @@ function parseStoredState(value) {
             claudeCode: parseClaudeTokens(tokenStats.claudeCode),
             codex: parseCodexTokens(tokenStats.codex),
         },
-        agentFileCursors: parseCursors(value.agentFileCursors),
+        agentFileCursors: cursors,
     };
 }
 function parseClaudeTokens(value) {
@@ -198,6 +262,24 @@ function parseCursors(value) {
     }
     return cursors;
 }
+function cloneCursors(cursors) {
+    return Object.fromEntries(Object.entries(cursors).map(([filePath, cursor]) => [filePath, { ...cursor }]));
+}
+function parsePauses(value) {
+    if (!Array.isArray(value)) {
+        return [];
+    }
+    return value.flatMap((pause) => {
+        if (!isRecord(pause)) {
+            return [];
+        }
+        const startedAt = nullableTimestamp(pause.startedAt);
+        if (startedAt === null) {
+            return [];
+        }
+        return [{ startedAt, endedAt: nullableTimestamp(pause.endedAt) }];
+    });
+}
 function parseNumberRecord(value) {
     if (!isRecord(value)) {
         return {};
@@ -212,9 +294,12 @@ function parseNumberRecord(value) {
 }
 function cloneState(state) {
     return {
-        dateKey: state.dateKey,
+        version: 3,
         detectedAgents: [...state.detectedAgents],
-        session: { ...state.session },
+        session: {
+            ...state.session,
+            pauses: state.session.pauses.map((pause) => ({ ...pause })),
+        },
         agentPrompts: { ...state.agentPrompts },
         buildFailures: {
             total: state.buildFailures.total,
@@ -228,11 +313,50 @@ function cloneState(state) {
                 ? 'unavailable'
                 : { ...state.tokenStats.codex },
         },
-        agentFileCursors: Object.fromEntries(Object.entries(state.agentFileCursors).map(([filePath, cursor]) => [
-            filePath,
-            { ...cursor },
-        ])),
+        agentFileCursors: cloneCursors(state.agentFileCursors),
     };
+}
+function closePause(session, endedAt) {
+    const pause = session.pauses[session.pauses.length - 1];
+    if (pause && pause.endedAt === null) {
+        pause.endedAt = Math.max(pause.startedAt, endedAt);
+    }
+    session.isPaused = false;
+    session.pausedAt = null;
+}
+function closeSession(session, endedAt) {
+    if (session.isPaused) {
+        closePause(session, endedAt);
+    }
+    session.isActive = false;
+    session.isPaused = false;
+    session.endedAt = session.startedAt === null
+        ? endedAt
+        : Math.max(session.startedAt, endedAt);
+}
+function sessionContainsTimestamp(session, timestamp) {
+    if (!Number.isFinite(timestamp)
+        || session.id === null
+        || session.startedAt === null
+        || timestamp < session.startedAt
+        || (session.endedAt !== null && timestamp > session.endedAt)) {
+        return false;
+    }
+    return !session.pauses.some((pause) => timestamp >= pause.startedAt
+        && (pause.endedAt === null || timestamp < pause.endedAt));
+}
+function createSessionId(startedAt) {
+    return `${Math.round(startedAt).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+function safeTimestamp(value, fallback) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? value
+        : fallback;
+}
+function nullableTimestamp(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ? value
+        : null;
 }
 function safeNumber(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
@@ -240,18 +364,10 @@ function safeNumber(value) {
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-function parseDetectedAgents(value, prompts, tokenStats) {
-    if (Array.isArray(value)) {
-        return value.filter((agent) => isAgentId(agent));
-    }
-    const detected = [];
-    if (safeNumber(prompts.claudeCode) > 0 || parseClaudeTokens(tokenStats.claudeCode)) {
-        detected.push('claude-code');
-    }
-    if (safeNumber(prompts.codex) > 0 || parseCodexTokens(tokenStats.codex) !== 'unavailable') {
-        detected.push('codex');
-    }
-    return detected;
+function parseDetectedAgents(value) {
+    return Array.isArray(value)
+        ? value.filter((agent) => isAgentId(agent))
+        : [];
 }
 function isAgentId(value) {
     return value === 'claude-code' || value === 'codex';
