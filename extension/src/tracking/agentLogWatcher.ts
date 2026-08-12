@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
+  AgentLogParseContext,
   AgentLogSource,
   AGENT_LOG_SOURCES,
   parseJsonLine,
@@ -10,6 +11,7 @@ import {
 import {
   AgentLogBatch,
   ClaudeTokenStats,
+  CopilotTokenStats,
   DailyStateStore,
 } from './dailyStateStore';
 
@@ -28,6 +30,8 @@ interface ParsedBatch {
   hasClaudeUsage: boolean;
   codexTokens: number;
   codexUsageAvailable: boolean;
+  copilotUsage: CopilotTokenStats;
+  hasCopilotUsage: boolean;
 }
 
 interface FileWorkspaceState {
@@ -39,7 +43,9 @@ interface FileWorkspaceState {
 export class AgentLogWatcher implements vscode.Disposable {
   private readonly watchers: fs.FSWatcher[] = [];
   private readonly watchedDirectories: WatchedDirectory[] = [];
+  private readonly watchedDirectoryKeys = new Set<string>();
   private readonly fileWorkspaces = new Map<string, FileWorkspaceState>();
+  private readonly fileParseContexts = new Map<string, AgentLogParseContext>();
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private scanPromise: Promise<void> | undefined;
   private scanRequested = false;
@@ -86,10 +92,15 @@ export class AgentLogWatcher implements vscode.Disposable {
 
   private async discoverDirectories(): Promise<void> {
     for (const source of this.sources) {
-      for (const directory of source.getLogDirs()) {
+      for (const directory of source.getLogDirs(this.workspacePaths)) {
+        const key = `${source.id}:${normalizeFsPath(directory)}`;
+        if (this.watchedDirectoryKeys.has(key)) {
+          continue;
+        }
         if (!(await isDirectory(directory))) {
           continue;
         }
+        this.watchedDirectoryKeys.add(key);
         this.watchedDirectories.push({ source, directory });
         this.watchDirectory(directory);
       }
@@ -132,6 +143,9 @@ export class AgentLogWatcher implements vscode.Disposable {
   }
 
   private async scanAllFiles(): Promise<void> {
+    // Copilot creates chatSessions lazily on the first chat in a workspace.
+    // Rediscovery lets a session that starts after Sprintly still be captured.
+    await this.discoverDirectories();
     for (const watched of this.watchedDirectories) {
       const files = await findLogFiles(watched.directory, watched.source.id);
       for (const filePath of files) {
@@ -153,12 +167,15 @@ export class AgentLogWatcher implements vscode.Disposable {
     let startOffset = this.store.getAgentFileOffset(filePath);
     if (stat.size < startOffset) {
       startOffset = 0;
+      this.fileParseContexts.delete(filePath);
+      this.fileWorkspaces.delete(filePath);
     }
     if (stat.size === startOffset || stat.size === 0) {
       return;
     }
 
     const fileWorkspace = await this.resolveFileWorkspace(source, filePath, startOffset);
+    const parseContext = await this.resolveParseContext(source, filePath, startOffset);
 
     const batch = emptyParsedBatch();
     let processedBytes = 0;
@@ -179,7 +196,7 @@ export class AgentLogWatcher implements vscode.Disposable {
         const complete = combined.subarray(0, finalNewline + 1);
         remainder = combined.subarray(finalNewline + 1);
         processedBytes += complete.length;
-        this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace);
+        this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace, parseContext);
       }
     } catch {
       return;
@@ -188,7 +205,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     if (remainder.length > 0) {
       const parsed = parseJsonLine(remainder.toString('utf8').replace(/\r$/, ''));
       if (parsed) {
-        this.processParsedLine(source, parsed, batch, fileWorkspace);
+        this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext);
         processedBytes += remainder.length;
       }
     }
@@ -206,6 +223,7 @@ export class AgentLogWatcher implements vscode.Disposable {
       claudeUsage: batch.hasClaudeUsage ? batch.claudeUsage : undefined,
       codexTokens: batch.codexTokens,
       codexUsageAvailable: batch.codexUsageAvailable,
+      copilotUsage: batch.hasCopilotUsage ? batch.copilotUsage : undefined,
     };
     this.store.applyAgentLogBatch(storeBatch);
   }
@@ -215,6 +233,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     text: string,
     batch: ParsedBatch,
     fileWorkspace: FileWorkspaceState,
+    parseContext: AgentLogParseContext,
   ): void {
     for (const line of text.split('\n')) {
       const trimmed = line.replace(/\r$/, '').trim();
@@ -223,8 +242,23 @@ export class AgentLogWatcher implements vscode.Disposable {
       }
       const parsed = parseJsonLine(trimmed);
       if (parsed) {
-        this.processParsedLine(source, parsed, batch, fileWorkspace);
+        this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext);
       }
+    }
+  }
+
+  private processSourceLine(
+    source: AgentLogSource,
+    parsed: Record<string, unknown>,
+    batch: ParsedBatch,
+    fileWorkspace: FileWorkspaceState,
+    parseContext: AgentLogParseContext,
+  ): void {
+    const entries = source.expandEntries
+      ? source.expandEntries(parsed, parseContext)
+      : [parsed];
+    for (const entry of entries) {
+      this.processParsedLine(source, entry, batch, fileWorkspace);
     }
   }
 
@@ -272,8 +306,8 @@ export class AgentLogWatcher implements vscode.Disposable {
     }
 
     const state: FileWorkspaceState = {
-      matches: false,
-      resolved: this.workspacePaths.length === 0,
+      matches: source.logsAreWorkspaceScoped === true,
+      resolved: source.logsAreWorkspaceScoped === true || this.workspacePaths.length === 0,
     };
     if (this.workspacePaths.length === 0) {
       this.fileWorkspaces.set(filePath, state);
@@ -306,6 +340,47 @@ export class AgentLogWatcher implements vscode.Disposable {
     return state;
   }
 
+  private async resolveParseContext(
+    source: AgentLogSource,
+    filePath: string,
+    startOffset: number,
+  ): Promise<AgentLogParseContext> {
+    const cached = this.fileParseContexts.get(filePath);
+    if (cached) {
+      return cached;
+    }
+    const context: AgentLogParseContext = {};
+    this.fileParseContexts.set(filePath, context);
+    if (!source.expandEntries || startOffset <= 0) {
+      return context;
+    }
+
+    // Copilot token patches refer to requests by array index. Rebuild that
+    // lightweight index from the already-consumed prefix without recounting it.
+    try {
+      const stream = fs.createReadStream(filePath, { start: 0, end: startOffset - 1 });
+      let remainder = '';
+      for await (const chunk of stream) {
+        const text = remainder + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+        const lines = text.split('\n');
+        remainder = lines.pop() ?? '';
+        for (const line of lines) {
+          const parsed = parseJsonLine(line.replace(/\r$/, '').trim());
+          if (parsed) {
+            source.expandEntries(parsed, context);
+          }
+        }
+      }
+      const parsed = parseJsonLine(remainder.replace(/\r$/, '').trim());
+      if (parsed) {
+        source.expandEntries(parsed, context);
+      }
+    } catch {
+      // New request records remain countable even if an old token index cannot be restored.
+    }
+    return context;
+  }
+
   private updateFileWorkspace(
     source: AgentLogSource,
     parsed: Record<string, unknown>,
@@ -331,9 +406,14 @@ function addUsage(batch: ParsedBatch, usage: TokenUsage): void {
     batch.claudeUsage.output += usage.output;
     batch.claudeUsage.cacheRead += usage.cacheRead;
     batch.claudeUsage.cacheCreate += usage.cacheCreate;
-  } else {
+  } else if (usage.kind === 'codex') {
     batch.codexUsageAvailable = true;
     batch.codexTokens += usage.total;
+  } else {
+    batch.hasCopilotUsage = true;
+    batch.copilotUsage.input += usage.input;
+    batch.copilotUsage.output += usage.output;
+    batch.copilotUsage.credits += usage.credits;
   }
 }
 
@@ -345,6 +425,8 @@ function emptyParsedBatch(): ParsedBatch {
     hasClaudeUsage: false,
     codexTokens: 0,
     codexUsageAvailable: false,
+    copilotUsage: { input: 0, output: 0, credits: 0 },
+    hasCopilotUsage: false,
   };
 }
 
@@ -375,7 +457,7 @@ async function findLogFiles(directory: string, sourceId: string): Promise<string
 }
 
 function isLogFile(fileName: string, sourceId: string): boolean {
-  if (sourceId === 'claude-code') {
+  if (sourceId === 'claude-code' || sourceId === 'github-copilot') {
     return fileName.toLowerCase().endsWith('.jsonl');
   }
   return /^rollout-.*\.jsonl$/i.test(fileName);

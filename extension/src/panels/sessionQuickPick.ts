@@ -195,6 +195,7 @@ async function showMetricDetail(
     items = [
       item('copilot', 'Claude Code', String(state.agentPrompts.claudeCode)),
       item('terminal', 'Codex', String(state.agentPrompts.codex)),
+      item('github', 'GitHub Copilot', String(state.agentPrompts.githubCopilot)),
     ];
   } else if (metric === 'failures') {
     const categories = Object.entries(state.buildFailures.byCategory)
@@ -231,6 +232,16 @@ function buildTokenDetailItems(state: Readonly<DailySprintlyState>): vscode.Quic
       'Codex total',
       state.tokenStats.codex === 'unavailable' ? 'Unavailable' : formatTokens(state.tokenStats.codex.total),
     ));
+  }
+  const copilot = state.tokenStats.githubCopilot;
+  if (copilot) {
+    items.push(
+      item('github', 'GitHub Copilot total', formatTokens(copilot.input + copilot.output), `${formatCredits(copilot.credits)} used`),
+      item('arrow-down', 'Copilot input', formatTokens(copilot.input)),
+      item('arrow-up', 'Copilot output', formatTokens(copilot.output)),
+    );
+  } else if (state.detectedAgents.includes('github-copilot')) {
+    items.push(item('github', 'GitHub Copilot total', 'Unavailable'));
   }
   return items.length ? items : [item('circle-slash', 'No token usage captured', 'Unavailable')];
 }
@@ -310,10 +321,19 @@ function metricTitle(metric: MetricDetail): string {
 }
 
 function describeAgentPrompts(state: Readonly<DailySprintlyState>): string {
-  const total = state.agentPrompts.claudeCode + state.agentPrompts.codex;
+  const total = state.agentPrompts.claudeCode
+    + state.agentPrompts.codex
+    + state.agentPrompts.githubCopilot;
   if (!state.session.id) return 'Start a sprint to begin counting';
   if (total === 0) return '0 total';
-  return `${total} total · Claude ${state.agentPrompts.claudeCode} · Codex ${state.agentPrompts.codex}`;
+  const agents = [
+    `Claude ${state.agentPrompts.claudeCode}`,
+    `Codex ${state.agentPrompts.codex}`,
+  ];
+  if (state.agentPrompts.githubCopilot > 0 || state.detectedAgents.includes('github-copilot')) {
+    agents.push(`Copilot ${state.agentPrompts.githubCopilot}`);
+  }
+  return `${total} total · ${agents.join(' · ')}`;
 }
 
 function describeFailures(state: Readonly<DailySprintlyState>): string {
@@ -336,6 +356,12 @@ function describeTokenUsage(state: Readonly<DailySprintlyState>): string {
     parts.push(state.tokenStats.codex === 'unavailable'
       ? 'Codex unavailable'
       : `Codex ${formatTokens(state.tokenStats.codex.total)}`);
+  }
+  const copilot = state.tokenStats.githubCopilot;
+  if (copilot) {
+    parts.push(`Copilot ${formatTokens(copilot.input + copilot.output)}`);
+  } else if (state.detectedAgents.includes('github-copilot')) {
+    parts.push('Copilot unavailable');
   }
   return parts.length ? parts.join(' · ') : 'No token usage captured';
 }
@@ -374,6 +400,10 @@ function formatTokens(tokens: number): string {
 
 function formatCost(cost: number): string {
   return `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+}
+
+function formatCredits(credits: number): string {
+  return `${credits} Copilot credit${credits === 1 ? '' : 's'}`;
 }
 
 function totalClaudeTokens(

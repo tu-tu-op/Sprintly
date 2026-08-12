@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 export type CodingCategory = 'hardcode' | 'vibecode';
-export type AgentId = 'claude-code' | 'codex';
+export type AgentId = 'claude-code' | 'codex' | 'github-copilot';
 
 export interface SessionPauseInterval {
   startedAt: number;
@@ -23,6 +23,7 @@ export interface SessionSplit {
 export interface AgentPromptStats {
   claudeCode: number;
   codex: number;
+  githubCopilot: number;
 }
 
 export interface BuildFailureStats {
@@ -37,9 +38,16 @@ export interface ClaudeTokenStats {
   cacheCreate: number;
 }
 
+export interface CopilotTokenStats {
+  input: number;
+  output: number;
+  credits: number;
+}
+
 export interface TokenStats {
   claudeCode: ClaudeTokenStats | null;
   codex: { total: number } | 'unavailable';
+  githubCopilot: CopilotTokenStats | null;
 }
 
 export interface AgentFileCursor {
@@ -69,6 +77,7 @@ export interface AgentLogBatch {
   claudeUsage?: ClaudeTokenStats;
   codexTokens?: number;
   codexUsageAvailable?: boolean;
+  copilotUsage?: CopilotTokenStats;
 }
 
 const SESSION_STATE_KEY = 'sprintly.sessionTracking.v3';
@@ -226,6 +235,16 @@ export class DailyStateStore implements vscode.Disposable {
             : state.tokenStats.codex.total;
           state.tokenStats.codex = { total: current + (batch.codexTokens ?? 0) };
         }
+      } else if (batch.sourceId === 'github-copilot') {
+        state.agentPrompts.githubCopilot += batch.promptCount;
+        if (batch.copilotUsage) {
+          const current = state.tokenStats.githubCopilot ?? emptyCopilotTokens();
+          state.tokenStats.githubCopilot = {
+            input: current.input + batch.copilotUsage.input,
+            output: current.output + batch.copilotUsage.output,
+            credits: current.credits + batch.copilotUsage.credits,
+          };
+        }
       }
     });
   }
@@ -266,9 +285,9 @@ function createEmptyState(
     version: 3,
     detectedAgents: [],
     session: emptySession(),
-    agentPrompts: { claudeCode: 0, codex: 0 },
+    agentPrompts: { claudeCode: 0, codex: 0, githubCopilot: 0 },
     buildFailures: { total: 0, byCategory: {} },
-    tokenStats: { claudeCode: null, codex: 'unavailable' },
+    tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
     agentFileCursors,
   };
 }
@@ -289,6 +308,10 @@ function emptySession(): SessionSplit {
 
 function emptyClaudeTokens(): ClaudeTokenStats {
   return { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+}
+
+function emptyCopilotTokens(): CopilotTokenStats {
+  return { input: 0, output: 0, credits: 0 };
 }
 
 function parseStoredState(value: unknown): SprintlySessionState {
@@ -324,6 +347,7 @@ function parseStoredState(value: unknown): SprintlySessionState {
     agentPrompts: {
       claudeCode: safeNumber(prompts.claudeCode),
       codex: safeNumber(prompts.codex),
+      githubCopilot: safeNumber(prompts.githubCopilot),
     },
     buildFailures: {
       total: safeNumber(failures.total),
@@ -332,6 +356,7 @@ function parseStoredState(value: unknown): SprintlySessionState {
     tokenStats: {
       claudeCode: parseClaudeTokens(tokenStats.claudeCode),
       codex: parseCodexTokens(tokenStats.codex),
+      githubCopilot: parseCopilotTokens(tokenStats.githubCopilot),
     },
     agentFileCursors: cursors,
   };
@@ -353,6 +378,17 @@ function parseCodexTokens(value: unknown): { total: number } | 'unavailable' {
   return isRecord(value) && typeof value.total === 'number'
     ? { total: safeNumber(value.total) }
     : 'unavailable';
+}
+
+function parseCopilotTokens(value: unknown): CopilotTokenStats | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return {
+    input: safeNumber(value.input),
+    output: safeNumber(value.output),
+    credits: safeNumber(value.credits),
+  };
 }
 
 function parseCursors(value: unknown): Record<string, AgentFileCursor> {
@@ -425,6 +461,9 @@ function cloneState(state: SprintlySessionState): SprintlySessionState {
       codex: state.tokenStats.codex === 'unavailable'
         ? 'unavailable'
         : { ...state.tokenStats.codex },
+      githubCopilot: state.tokenStats.githubCopilot
+        ? { ...state.tokenStats.githubCopilot }
+        : null,
     },
     agentFileCursors: cloneCursors(state.agentFileCursors),
   };
@@ -493,5 +532,5 @@ function parseDetectedAgents(value: unknown): AgentId[] {
 }
 
 function isAgentId(value: unknown): value is AgentId {
-  return value === 'claude-code' || value === 'codex';
+  return value === 'claude-code' || value === 'codex' || value === 'github-copilot';
 }

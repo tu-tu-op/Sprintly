@@ -79,9 +79,9 @@ function state() {
       hardcodeMs: 60_000,
       vibecodeMs: 0,
     },
-    agentPrompts: { claudeCode: 0, codex: 2 },
+    agentPrompts: { claudeCode: 0, codex: 2, githubCopilot: 0 },
     buildFailures: { total: 0, byCategory: {} },
-    tokenStats: { claudeCode: null, codex: { total: 300 } },
+    tokenStats: { claudeCode: null, codex: { total: 300 }, githubCopilot: null },
     agentFileCursors: {},
   };
 }

@@ -1,7 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AGENT_LOG_SOURCES = exports.CODEX_SOURCE = exports.CLAUDE_CODE_SOURCE = void 0;
+exports.AGENT_LOG_SOURCES = exports.GITHUB_COPILOT_SOURCE = exports.CODEX_SOURCE = exports.CLAUDE_CODE_SOURCE = void 0;
 exports.parseJsonLine = parseJsonLine;
+const fs = require("fs");
 const os = require("os");
 const path = require("path");
 exports.CLAUDE_CODE_SOURCE = {
@@ -52,9 +53,27 @@ exports.CODEX_SOURCE = {
     extractTimestamp: extractCommonTimestamp,
     extractUsage: extractCodexUsage,
 };
+exports.GITHUB_COPILOT_SOURCE = {
+    id: 'github-copilot',
+    getLogDirs: getCopilotChatLogDirs,
+    logsAreWorkspaceScoped: true,
+    extractWorkspacePath: () => null,
+    isPromptEntry: (line) => line.__sprintlyCopilotPrompt === true,
+    extractTimestamp: extractCommonTimestamp,
+    extractUsage: (line) => {
+        const input = readNonNegativeNumber(line.__sprintlyCopilotInput) ?? 0;
+        const output = readNonNegativeNumber(line.__sprintlyCopilotOutput) ?? 0;
+        const credits = readNonNegativeNumber(line.__sprintlyCopilotCredits) ?? 0;
+        return input === 0 && output === 0 && credits === 0
+            ? null
+            : { kind: 'githubCopilot', input, output, credits };
+    },
+    expandEntries: expandCopilotEntries,
+};
 exports.AGENT_LOG_SOURCES = [
     exports.CLAUDE_CODE_SOURCE,
     exports.CODEX_SOURCE,
+    exports.GITHUB_COPILOT_SOURCE,
 ];
 function parseJsonLine(line) {
     try {
@@ -161,6 +180,156 @@ function extractCommonWorkspacePath(line) {
         ?? payload?.projectPath
         ?? message?.cwd;
     return typeof raw === 'string' && raw.trim().length > 0 ? raw.trim() : null;
+}
+function getCopilotChatLogDirs(workspacePaths = []) {
+    if (workspacePaths.length === 0) {
+        return [];
+    }
+    const storageRoots = getVsCodeConfigRoots()
+        .map((configRoot) => path.join(configRoot, 'User', 'workspaceStorage'))
+        .filter((candidate) => fs.existsSync(candidate));
+    const directories = [];
+    for (const storageRoot of storageRoots) {
+        let entries;
+        try {
+            entries = fs.readdirSync(storageRoot, { withFileTypes: true });
+        }
+        catch {
+            continue;
+        }
+        for (const entry of entries) {
+            if (!entry.isDirectory()) {
+                continue;
+            }
+            const storageDirectory = path.join(storageRoot, entry.name);
+            const storedWorkspace = readStoredWorkspacePath(path.join(storageDirectory, 'workspace.json'));
+            if (!storedWorkspace || !workspacePaths.some((workspace) => pathsEqual(storedWorkspace, workspace))) {
+                continue;
+            }
+            const chatSessions = path.join(storageDirectory, 'chatSessions');
+            if (fs.existsSync(chatSessions)) {
+                directories.push(chatSessions);
+            }
+        }
+    }
+    return directories;
+}
+function getVsCodeConfigRoots() {
+    const products = ['Code', 'Code - Insiders', 'VSCodium'];
+    if (process.platform === 'win32') {
+        const appData = process.env.APPDATA;
+        return appData
+            ? products.map((product) => path.join(appData, product))
+            : [];
+    }
+    if (process.platform === 'darwin') {
+        const applicationSupport = path.join(os.homedir(), 'Library', 'Application Support');
+        return products.map((product) => path.join(applicationSupport, product));
+    }
+    const configHome = process.env.XDG_CONFIG_HOME ?? path.join(os.homedir(), '.config');
+    return products.map((product) => path.join(configHome, product));
+}
+function readStoredWorkspacePath(workspaceFile) {
+    try {
+        const parsed = asRecord(JSON.parse(fs.readFileSync(workspaceFile, 'utf8')));
+        const uri = typeof parsed?.folder === 'string'
+            ? parsed.folder
+            : typeof parsed?.workspace === 'string'
+                ? parsed.workspace
+                : null;
+        return uri ? fileUriToPath(uri) : null;
+    }
+    catch {
+        return null;
+    }
+}
+function fileUriToPath(uri) {
+    if (!uri.toLowerCase().startsWith('file://')) {
+        return null;
+    }
+    try {
+        const parsed = new URL(uri);
+        let pathname = decodeURIComponent(parsed.pathname);
+        if (/^\/[a-zA-Z]:\//.test(pathname)) {
+            pathname = pathname.slice(1);
+        }
+        return pathname.replace(/\//g, path.sep);
+    }
+    catch {
+        return null;
+    }
+}
+function pathsEqual(left, right) {
+    return normalizeComparablePath(left) === normalizeComparablePath(right);
+}
+function normalizeComparablePath(value) {
+    const normalized = path.resolve(value).replace(/[\\/]+$/, '');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+function expandCopilotEntries(line, context) {
+    const timestamps = context.copilotRequestTimestamps ?? [];
+    context.copilotRequestTimestamps = timestamps;
+    const kind = readNonNegativeNumber(line.kind);
+    const keyPath = Array.isArray(line.k) ? line.k : [];
+    if (kind === 0) {
+        const snapshot = asRecord(line.v);
+        const requests = Array.isArray(snapshot?.requests) ? snapshot.requests : [];
+        timestamps.length = 0;
+        return requests.flatMap((request) => appendCopilotRequest(request, timestamps));
+    }
+    if (kind === 2 && keyPath.length === 1 && keyPath[0] === 'requests' && Array.isArray(line.v)) {
+        return line.v.flatMap((request) => appendCopilotRequest(request, timestamps));
+    }
+    if (kind === 1 && keyPath.length === 3 && keyPath[0] === 'requests') {
+        const requestIndex = typeof keyPath[1] === 'number' ? keyPath[1] : Number(keyPath[1]);
+        const metric = keyPath[2];
+        const timestamp = Number.isInteger(requestIndex) ? timestamps[requestIndex] : null;
+        if (timestamp === null || timestamp === undefined || typeof metric !== 'string') {
+            return [];
+        }
+        const synthetic = { timestamp };
+        if (metric === 'promptTokens') {
+            synthetic.__sprintlyCopilotInput = readNonNegativeNumber(line.v) ?? 0;
+        }
+        else if (metric === 'completionTokens') {
+            synthetic.__sprintlyCopilotOutput = readNonNegativeNumber(line.v) ?? 0;
+        }
+        else if (metric === 'copilotCredits') {
+            synthetic.__sprintlyCopilotCredits = readNonNegativeNumber(line.v) ?? 0;
+        }
+        else {
+            return [];
+        }
+        return [synthetic];
+    }
+    return [];
+}
+function appendCopilotRequest(value, timestamps) {
+    const request = asRecord(value);
+    if (!request) {
+        timestamps.push(null);
+        return [];
+    }
+    const timestamp = extractCommonTimestamp(request);
+    timestamps.push(timestamp);
+    return [{
+            ...request,
+            __sprintlyCopilotPrompt: isCopilotPrompt(request),
+            __sprintlyCopilotInput: readNonNegativeNumber(request.promptTokens) ?? 0,
+            __sprintlyCopilotOutput: readNonNegativeNumber(request.completionTokens) ?? 0,
+            __sprintlyCopilotCredits: readNonNegativeNumber(request.copilotCredits) ?? 0,
+        }];
+}
+function isCopilotPrompt(request) {
+    const message = asRecord(request.message);
+    if (typeof message?.text !== 'string' || message.text.trim().length === 0) {
+        return false;
+    }
+    const agent = asRecord(request.agent);
+    const extensionId = asRecord(agent?.extensionId);
+    const extensionValue = String(extensionId?.value ?? extensionId?._lower ?? '').toLowerCase();
+    const modelId = String(request.modelId ?? '').toLowerCase();
+    return extensionValue === 'github.copilot-chat' || modelId.startsWith('copilot/');
 }
 function readContent(value) {
     return value.content ?? value.text ?? value.message ?? value.input;

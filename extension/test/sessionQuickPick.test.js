@@ -46,9 +46,9 @@ function sessionState(overrides = {}) {
       hardcodeMs: 0,
       vibecodeMs: 0,
     },
-    agentPrompts: { claudeCode: 0, codex: 0 },
+    agentPrompts: { claudeCode: 0, codex: 0, githubCopilot: 0 },
     buildFailures: { total: 0, byCategory: {} },
-    tokenStats: { claudeCode: null, codex: 'unavailable' },
+    tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
     agentFileCursors: {},
     ...overrides,
   };
@@ -65,11 +65,12 @@ test('panel summary presents an active sprint with separate agent usage', () => 
       hardcodeMs: 180_000,
       vibecodeMs: 60_000,
     },
-    agentPrompts: { claudeCode: 3, codex: 2 },
+    agentPrompts: { claudeCode: 3, codex: 2, githubCopilot: 0 },
     buildFailures: { total: 1, byCategory: { type_error: 1 } },
     tokenStats: {
       claudeCode: { input: 1_000, output: 500, cacheRead: 0, cacheCreate: 0 },
       codex: { total: 750 },
+      githubCopilot: null,
     },
   });
   const summary = buildSessionPanelSummary(trackerStats({
@@ -103,4 +104,26 @@ test('panel summary distinguishes completed and empty states', () => {
   assert.equal(latest.duration, '01:01');
   assert.equal(empty.scope, 'No session');
   assert.equal(empty.status, 'Ready');
+});
+
+test('panel summary includes GitHub Copilot Chat prompts and tokens', () => {
+  const state = sessionState({
+    detectedAgents: ['github-copilot'],
+    session: {
+      ...sessionState().session,
+      id: 'copilot-session',
+      startedAt: 1_000,
+      isActive: true,
+    },
+    agentPrompts: { claudeCode: 0, codex: 0, githubCopilot: 2 },
+    tokenStats: {
+      claudeCode: null,
+      codex: 'unavailable',
+      githubCopilot: { input: 1_200, output: 300, credits: 2 },
+    },
+  });
+
+  const summary = buildSessionPanelSummary(trackerStats(), state);
+  assert.equal(summary.promptUsage, '2 total · Claude 0 · Codex 0 · Copilot 2');
+  assert.equal(summary.tokenUsage, 'Copilot ~1.5K');
 });

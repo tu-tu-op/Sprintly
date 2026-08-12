@@ -77,7 +77,7 @@ test('a new Sprintly session resets metrics but retains log cursors', () => {
   const state = store.get();
   assert.equal(state.session.id, 'session-two');
   assert.equal(state.buildFailures.total, 0);
-  assert.deepEqual(state.agentPrompts, { claudeCode: 0, codex: 0 });
+  assert.deepEqual(state.agentPrompts, { claudeCode: 0, codex: 0, githubCopilot: 0 });
   assert.equal(state.tokenStats.codex, 'unavailable');
   assert.equal(store.getAgentFileOffset('codex.jsonl'), 84);
 });
@@ -116,7 +116,7 @@ test('inactive scans advance cursors without adding usage', () => {
 
   const state = store.get();
   assert.equal(store.getAgentFileOffset('claude.jsonl'), 50);
-  assert.deepEqual(state.agentPrompts, { claudeCode: 0, codex: 0 });
+  assert.deepEqual(state.agentPrompts, { claudeCode: 0, codex: 0, githubCopilot: 0 });
   assert.equal(state.tokenStats.claudeCode, null);
   assert.deepEqual(state.detectedAgents, []);
 });

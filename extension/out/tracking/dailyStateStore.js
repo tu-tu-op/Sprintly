@@ -137,6 +137,17 @@ class DailyStateStore {
                     state.tokenStats.codex = { total: current + (batch.codexTokens ?? 0) };
                 }
             }
+            else if (batch.sourceId === 'github-copilot') {
+                state.agentPrompts.githubCopilot += batch.promptCount;
+                if (batch.copilotUsage) {
+                    const current = state.tokenStats.githubCopilot ?? emptyCopilotTokens();
+                    state.tokenStats.githubCopilot = {
+                        input: current.input + batch.copilotUsage.input,
+                        output: current.output + batch.copilotUsage.output,
+                        credits: current.credits + batch.copilotUsage.credits,
+                    };
+                }
+            }
         });
     }
     dispose() {
@@ -169,9 +180,9 @@ function createEmptyState(agentFileCursors = {}) {
         version: 3,
         detectedAgents: [],
         session: emptySession(),
-        agentPrompts: { claudeCode: 0, codex: 0 },
+        agentPrompts: { claudeCode: 0, codex: 0, githubCopilot: 0 },
         buildFailures: { total: 0, byCategory: {} },
-        tokenStats: { claudeCode: null, codex: 'unavailable' },
+        tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
         agentFileCursors,
     };
 }
@@ -190,6 +201,9 @@ function emptySession() {
 }
 function emptyClaudeTokens() {
     return { input: 0, output: 0, cacheRead: 0, cacheCreate: 0 };
+}
+function emptyCopilotTokens() {
+    return { input: 0, output: 0, credits: 0 };
 }
 function parseStoredState(value) {
     if (!isRecord(value)) {
@@ -222,6 +236,7 @@ function parseStoredState(value) {
         agentPrompts: {
             claudeCode: safeNumber(prompts.claudeCode),
             codex: safeNumber(prompts.codex),
+            githubCopilot: safeNumber(prompts.githubCopilot),
         },
         buildFailures: {
             total: safeNumber(failures.total),
@@ -230,6 +245,7 @@ function parseStoredState(value) {
         tokenStats: {
             claudeCode: parseClaudeTokens(tokenStats.claudeCode),
             codex: parseCodexTokens(tokenStats.codex),
+            githubCopilot: parseCopilotTokens(tokenStats.githubCopilot),
         },
         agentFileCursors: cursors,
     };
@@ -249,6 +265,16 @@ function parseCodexTokens(value) {
     return isRecord(value) && typeof value.total === 'number'
         ? { total: safeNumber(value.total) }
         : 'unavailable';
+}
+function parseCopilotTokens(value) {
+    if (!isRecord(value)) {
+        return null;
+    }
+    return {
+        input: safeNumber(value.input),
+        output: safeNumber(value.output),
+        credits: safeNumber(value.credits),
+    };
 }
 function parseCursors(value) {
     if (!isRecord(value)) {
@@ -312,6 +338,9 @@ function cloneState(state) {
             codex: state.tokenStats.codex === 'unavailable'
                 ? 'unavailable'
                 : { ...state.tokenStats.codex },
+            githubCopilot: state.tokenStats.githubCopilot
+                ? { ...state.tokenStats.githubCopilot }
+                : null,
         },
         agentFileCursors: cloneCursors(state.agentFileCursors),
     };
@@ -370,6 +399,6 @@ function parseDetectedAgents(value) {
         : [];
 }
 function isAgentId(value) {
-    return value === 'claude-code' || value === 'codex';
+    return value === 'claude-code' || value === 'codex' || value === 'github-copilot';
 }
 //# sourceMappingURL=dailyStateStore.js.map

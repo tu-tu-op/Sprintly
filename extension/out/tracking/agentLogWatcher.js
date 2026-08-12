@@ -13,7 +13,9 @@ class AgentLogWatcher {
         this.sources = sources;
         this.watchers = [];
         this.watchedDirectories = [];
+        this.watchedDirectoryKeys = new Set();
         this.fileWorkspaces = new Map();
+        this.fileParseContexts = new Map();
         this.scanRequested = false;
         this.disposed = false;
         this.workspacePaths = workspacePaths.map(normalizeFsPath);
@@ -44,10 +46,15 @@ class AgentLogWatcher {
     }
     async discoverDirectories() {
         for (const source of this.sources) {
-            for (const directory of source.getLogDirs()) {
+            for (const directory of source.getLogDirs(this.workspacePaths)) {
+                const key = `${source.id}:${normalizeFsPath(directory)}`;
+                if (this.watchedDirectoryKeys.has(key)) {
+                    continue;
+                }
                 if (!(await isDirectory(directory))) {
                     continue;
                 }
+                this.watchedDirectoryKeys.add(key);
                 this.watchedDirectories.push({ source, directory });
                 this.watchDirectory(directory);
             }
@@ -89,6 +96,9 @@ class AgentLogWatcher {
         return this.scanPromise;
     }
     async scanAllFiles() {
+        // Copilot creates chatSessions lazily on the first chat in a workspace.
+        // Rediscovery lets a session that starts after Sprintly still be captured.
+        await this.discoverDirectories();
         for (const watched of this.watchedDirectories) {
             const files = await findLogFiles(watched.directory, watched.source.id);
             for (const filePath of files) {
@@ -110,11 +120,14 @@ class AgentLogWatcher {
         let startOffset = this.store.getAgentFileOffset(filePath);
         if (stat.size < startOffset) {
             startOffset = 0;
+            this.fileParseContexts.delete(filePath);
+            this.fileWorkspaces.delete(filePath);
         }
         if (stat.size === startOffset || stat.size === 0) {
             return;
         }
         const fileWorkspace = await this.resolveFileWorkspace(source, filePath, startOffset);
+        const parseContext = await this.resolveParseContext(source, filePath, startOffset);
         const batch = emptyParsedBatch();
         let processedBytes = 0;
         let remainder = Buffer.alloc(0);
@@ -134,7 +147,7 @@ class AgentLogWatcher {
                 const complete = combined.subarray(0, finalNewline + 1);
                 remainder = combined.subarray(finalNewline + 1);
                 processedBytes += complete.length;
-                this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace);
+                this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace, parseContext);
             }
         }
         catch {
@@ -143,7 +156,7 @@ class AgentLogWatcher {
         if (remainder.length > 0) {
             const parsed = (0, agentLogSources_1.parseJsonLine)(remainder.toString('utf8').replace(/\r$/, ''));
             if (parsed) {
-                this.processParsedLine(source, parsed, batch, fileWorkspace);
+                this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext);
                 processedBytes += remainder.length;
             }
         }
@@ -160,10 +173,11 @@ class AgentLogWatcher {
             claudeUsage: batch.hasClaudeUsage ? batch.claudeUsage : undefined,
             codexTokens: batch.codexTokens,
             codexUsageAvailable: batch.codexUsageAvailable,
+            copilotUsage: batch.hasCopilotUsage ? batch.copilotUsage : undefined,
         };
         this.store.applyAgentLogBatch(storeBatch);
     }
-    processCompleteLines(source, text, batch, fileWorkspace) {
+    processCompleteLines(source, text, batch, fileWorkspace, parseContext) {
         for (const line of text.split('\n')) {
             const trimmed = line.replace(/\r$/, '').trim();
             if (!trimmed) {
@@ -171,8 +185,16 @@ class AgentLogWatcher {
             }
             const parsed = (0, agentLogSources_1.parseJsonLine)(trimmed);
             if (parsed) {
-                this.processParsedLine(source, parsed, batch, fileWorkspace);
+                this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext);
             }
+        }
+    }
+    processSourceLine(source, parsed, batch, fileWorkspace, parseContext) {
+        const entries = source.expandEntries
+            ? source.expandEntries(parsed, parseContext)
+            : [parsed];
+        for (const entry of entries) {
+            this.processParsedLine(source, entry, batch, fileWorkspace);
         }
     }
     processParsedLine(source, parsed, batch, fileWorkspace) {
@@ -208,8 +230,8 @@ class AgentLogWatcher {
             return cached;
         }
         const state = {
-            matches: false,
-            resolved: this.workspacePaths.length === 0,
+            matches: source.logsAreWorkspaceScoped === true,
+            resolved: source.logsAreWorkspaceScoped === true || this.workspacePaths.length === 0,
         };
         if (this.workspacePaths.length === 0) {
             this.fileWorkspaces.set(filePath, state);
@@ -243,6 +265,42 @@ class AgentLogWatcher {
         this.fileWorkspaces.set(filePath, state);
         return state;
     }
+    async resolveParseContext(source, filePath, startOffset) {
+        const cached = this.fileParseContexts.get(filePath);
+        if (cached) {
+            return cached;
+        }
+        const context = {};
+        this.fileParseContexts.set(filePath, context);
+        if (!source.expandEntries || startOffset <= 0) {
+            return context;
+        }
+        // Copilot token patches refer to requests by array index. Rebuild that
+        // lightweight index from the already-consumed prefix without recounting it.
+        try {
+            const stream = fs.createReadStream(filePath, { start: 0, end: startOffset - 1 });
+            let remainder = '';
+            for await (const chunk of stream) {
+                const text = remainder + (Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+                const lines = text.split('\n');
+                remainder = lines.pop() ?? '';
+                for (const line of lines) {
+                    const parsed = (0, agentLogSources_1.parseJsonLine)(line.replace(/\r$/, '').trim());
+                    if (parsed) {
+                        source.expandEntries(parsed, context);
+                    }
+                }
+            }
+            const parsed = (0, agentLogSources_1.parseJsonLine)(remainder.replace(/\r$/, '').trim());
+            if (parsed) {
+                source.expandEntries(parsed, context);
+            }
+        }
+        catch {
+            // New request records remain countable even if an old token index cannot be restored.
+        }
+        return context;
+    }
     updateFileWorkspace(source, parsed, state) {
         const candidate = source.extractWorkspacePath(parsed);
         if (!candidate) {
@@ -262,9 +320,15 @@ function addUsage(batch, usage) {
         batch.claudeUsage.cacheRead += usage.cacheRead;
         batch.claudeUsage.cacheCreate += usage.cacheCreate;
     }
-    else {
+    else if (usage.kind === 'codex') {
         batch.codexUsageAvailable = true;
         batch.codexTokens += usage.total;
+    }
+    else {
+        batch.hasCopilotUsage = true;
+        batch.copilotUsage.input += usage.input;
+        batch.copilotUsage.output += usage.output;
+        batch.copilotUsage.credits += usage.credits;
     }
 }
 function emptyParsedBatch() {
@@ -275,6 +339,8 @@ function emptyParsedBatch() {
         hasClaudeUsage: false,
         codexTokens: 0,
         codexUsageAvailable: false,
+        copilotUsage: { input: 0, output: 0, credits: 0 },
+        hasCopilotUsage: false,
     };
 }
 async function findLogFiles(directory, sourceId) {
@@ -305,7 +371,7 @@ async function findLogFiles(directory, sourceId) {
     return files;
 }
 function isLogFile(fileName, sourceId) {
-    if (sourceId === 'claude-code') {
+    if (sourceId === 'claude-code' || sourceId === 'github-copilot') {
         return fileName.toLowerCase().endsWith('.jsonl');
     }
     return /^rollout-.*\.jsonl$/i.test(fileName);
