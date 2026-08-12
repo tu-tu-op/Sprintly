@@ -35,7 +35,7 @@ export function activate(context: vscode.ExtensionContext): void {
     buildFailureTracker,
     dailyStore,
   );
-  registerCommands(context, tracker, statusBar, dailyStore);
+  registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher);
   void agentLogWatcher.start().catch(() => undefined);
 
   context.subscriptions.push(
@@ -70,10 +70,12 @@ export function activate(context: vscode.ExtensionContext): void {
   );
 
   runConsentFlow(context, () => {
-    dailyStore.startSession();
-    tracker.start();
-    statusBar.update();
-    showInfo('Sprintly recording started.');
+    void agentLogWatcher.scanNow().then(() => {
+      dailyStore.startSession();
+      tracker.start();
+      statusBar.update();
+      showInfo('Sprintly recording started.');
+    }).catch(() => undefined);
   });
 }
 

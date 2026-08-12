@@ -4,6 +4,7 @@ import { makeProgressBar } from './statusBar';
 import { runConsentFlow } from './consentFlow';
 import { DailySprintlyState, DailyStateStore } from './tracking/dailyStateStore';
 import { estimateClaudeCost } from './tracking/pricing';
+import { AgentLogWatcher } from './tracking/agentLogWatcher';
 
 interface StatusBarUpdater {
   update(): void;
@@ -14,32 +15,38 @@ export function registerCommands(
   tracker: SessionTracker,
   statusBar: StatusBarUpdater,
   dailyStore: DailyStateStore,
+  agentLogWatcher: AgentLogWatcher,
 ): void {
   const refresh = () => statusBar.update();
 
-  const start = () => {
+  const start = async () => {
+    await agentLogWatcher.scanNow();
     dailyStore.startSession();
     tracker.start(); refresh();
     vscode.window.showInformationMessage('🏃 Sprintly — Session started!');
   };
-  const pause  = () => {
+  const pause  = async () => {
+    await agentLogWatcher.scanNow();
     dailyStore.pauseSession();
     tracker.pause();
     refresh();
   };
-  const resume = () => {
+  const resume = async () => {
+    await agentLogWatcher.scanNow();
     dailyStore.resumeSession();
     tracker.resume();
     refresh();
   };
-  const stop   = () => {
+  const stop   = async () => {
     const s = tracker.get();
+    await agentLogWatcher.scanNow();
     dailyStore.stopSession();
     tracker.stop(); refresh();
     vscode.window.showInformationMessage(
       `✅ Sprintly — Session ended. ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
   };
-  const reset = () => {
+  const reset = async () => {
+    await agentLogWatcher.scanNow();
     dailyStore.resetSession();
     tracker.reset();
     refresh();

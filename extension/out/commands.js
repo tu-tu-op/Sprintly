@@ -6,32 +6,37 @@ const vscode = require("vscode");
 const statusBar_1 = require("./statusBar");
 const consentFlow_1 = require("./consentFlow");
 const pricing_1 = require("./tracking/pricing");
-function registerCommands(context, tracker, statusBar, dailyStore) {
+function registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher) {
     const refresh = () => statusBar.update();
-    const start = () => {
+    const start = async () => {
+        await agentLogWatcher.scanNow();
         dailyStore.startSession();
         tracker.start();
         refresh();
         vscode.window.showInformationMessage('🏃 Sprintly — Session started!');
     };
-    const pause = () => {
+    const pause = async () => {
+        await agentLogWatcher.scanNow();
         dailyStore.pauseSession();
         tracker.pause();
         refresh();
     };
-    const resume = () => {
+    const resume = async () => {
+        await agentLogWatcher.scanNow();
         dailyStore.resumeSession();
         tracker.resume();
         refresh();
     };
-    const stop = () => {
+    const stop = async () => {
         const s = tracker.get();
+        await agentLogWatcher.scanNow();
         dailyStore.stopSession();
         tracker.stop();
         refresh();
         vscode.window.showInformationMessage(`✅ Sprintly — Session ended. ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
     };
-    const reset = () => {
+    const reset = async () => {
+        await agentLogWatcher.scanNow();
         dailyStore.resetSession();
         tracker.reset();
         refresh();

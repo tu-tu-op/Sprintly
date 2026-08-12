@@ -4,7 +4,6 @@ exports.AgentLogWatcher = void 0;
 const fs = require("fs");
 const path = require("path");
 const agentLogSources_1 = require("./agentLogSources");
-const dailyStateStore_1 = require("./dailyStateStore");
 const POLL_INTERVAL_MS = 5000;
 class AgentLogWatcher {
     constructor(store, sources = agentLogSources_1.AGENT_LOG_SOURCES) {
@@ -15,7 +14,15 @@ class AgentLogWatcher {
         this.scanRequested = false;
         this.disposed = false;
     }
-    async start() {
+    start() {
+        this.startPromise ?? (this.startPromise = this.initialize());
+        return this.startPromise;
+    }
+    async scanNow() {
+        await this.start();
+        await this.requestScan();
+    }
+    async initialize() {
         await this.discoverDirectories();
         await this.requestScan();
         this.pollTimer = setInterval(() => {
@@ -144,6 +151,7 @@ class AgentLogWatcher {
             filePath,
             nextOffset: startOffset + processedBytes,
             promptCount: batch.promptCount,
+            sessionId: batch.sessionId,
             claudeUsage: batch.hasClaudeUsage ? batch.claudeUsage : undefined,
             codexTokens: batch.codexTokens,
             codexUsageAvailable: batch.codexUsageAvailable,
@@ -164,14 +172,18 @@ class AgentLogWatcher {
     }
     processParsedLine(source, parsed, batch) {
         const timestamp = source.extractTimestamp(parsed);
-        const bounds = (0, dailyStateStore_1.localDayBounds)();
         // ASSUMPTION: entries without a trustworthy timestamp are ignored instead of being
-        // assigned to today, which prevents old or schema-unknown lines from inflating totals.
-        if (timestamp === null || timestamp < bounds.start || timestamp >= bounds.end) {
+        // assigned to a session, which prevents old or schema-unknown lines from inflating totals.
+        if (timestamp === null) {
             return;
         }
-        // ASSUMPTION: an agent is considered in use only after a valid entry from that
-        // agent is found for the current local day, rather than from installation alone.
+        const sessionId = this.store.getSessionIdForTimestamp(timestamp);
+        if (!sessionId || (batch.sessionId && batch.sessionId !== sessionId)) {
+            return;
+        }
+        batch.sessionId = sessionId;
+        // An agent is considered in use only after a valid entry from that agent is
+        // found inside this Sprintly session, rather than from installation alone.
         batch.detected = true;
         if (source.isPromptEntry(parsed)) {
             batch.promptCount += 1;

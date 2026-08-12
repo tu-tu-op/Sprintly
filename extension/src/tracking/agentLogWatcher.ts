@@ -11,7 +11,6 @@ import {
   AgentLogBatch,
   ClaudeTokenStats,
   DailyStateStore,
-  localDayBounds,
 } from './dailyStateStore';
 
 const POLL_INTERVAL_MS = 5_000;
@@ -23,6 +22,7 @@ interface WatchedDirectory {
 
 interface ParsedBatch {
   detected: boolean;
+  sessionId?: string;
   promptCount: number;
   claudeUsage: ClaudeTokenStats;
   hasClaudeUsage: boolean;
@@ -37,13 +37,24 @@ export class AgentLogWatcher implements vscode.Disposable {
   private scanPromise: Promise<void> | undefined;
   private scanRequested = false;
   private disposed = false;
+  private startPromise: Promise<void> | undefined;
 
   constructor(
     private readonly store: DailyStateStore,
     private readonly sources: readonly AgentLogSource[] = AGENT_LOG_SOURCES,
   ) {}
 
-  async start(): Promise<void> {
+  start(): Promise<void> {
+    this.startPromise ??= this.initialize();
+    return this.startPromise;
+  }
+
+  async scanNow(): Promise<void> {
+    await this.start();
+    await this.requestScan();
+  }
+
+  private async initialize(): Promise<void> {
     await this.discoverDirectories();
     await this.requestScan();
     this.pollTimer = setInterval(() => {
@@ -177,6 +188,7 @@ export class AgentLogWatcher implements vscode.Disposable {
       filePath,
       nextOffset: startOffset + processedBytes,
       promptCount: batch.promptCount,
+      sessionId: batch.sessionId,
       claudeUsage: batch.hasClaudeUsage ? batch.claudeUsage : undefined,
       codexTokens: batch.codexTokens,
       codexUsageAvailable: batch.codexUsageAvailable,
@@ -207,14 +219,18 @@ export class AgentLogWatcher implements vscode.Disposable {
     batch: ParsedBatch,
   ): void {
     const timestamp = source.extractTimestamp(parsed);
-    const bounds = localDayBounds();
     // ASSUMPTION: entries without a trustworthy timestamp are ignored instead of being
-    // assigned to today, which prevents old or schema-unknown lines from inflating totals.
-    if (timestamp === null || timestamp < bounds.start || timestamp >= bounds.end) {
+    // assigned to a session, which prevents old or schema-unknown lines from inflating totals.
+    if (timestamp === null) {
       return;
     }
-    // ASSUMPTION: an agent is considered in use only after a valid entry from that
-    // agent is found for the current local day, rather than from installation alone.
+    const sessionId = this.store.getSessionIdForTimestamp(timestamp);
+    if (!sessionId || (batch.sessionId && batch.sessionId !== sessionId)) {
+      return;
+    }
+    batch.sessionId = sessionId;
+    // An agent is considered in use only after a valid entry from that agent is
+    // found inside this Sprintly session, rather than from installation alone.
     batch.detected = true;
     if (source.isPromptEntry(parsed)) {
       batch.promptCount += 1;

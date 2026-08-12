@@ -20,7 +20,7 @@ function activate(context) {
     const buildFailureTracker = new buildFailureTracker_1.BuildFailureTracker(dailyStore);
     const statusBar = (0, statusBar_1.initStatusBar)(context, tracker, dailyStore);
     context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore);
-    (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore);
+    (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher);
     void agentLogWatcher.start().catch(() => undefined);
     context.subscriptions.push(vscode.commands.registerCommand('sprintly.openPanel', () => {
         runPanel(() => (0, commands_1.showStatusPanel)(tracker, dailyStore));
@@ -50,10 +50,12 @@ function activate(context) {
         }
     }));
     (0, consentFlow_1.runConsentFlow)(context, () => {
-        dailyStore.startSession();
-        tracker.start();
-        statusBar.update();
-        showInfo('Sprintly recording started.');
+        void agentLogWatcher.scanNow().then(() => {
+            dailyStore.startSession();
+            tracker.start();
+            statusBar.update();
+            showInfo('Sprintly recording started.');
+        }).catch(() => undefined);
     });
 }
 function deactivate() { }
