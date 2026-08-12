@@ -100,6 +100,20 @@ class DailyStateStore {
             state.buildFailures.total += 1;
             state.buildFailures.byCategory[category] =
                 (state.buildFailures.byCategory[category] ?? 0) + 1;
+            state.buildFailures.failureStreak += 1;
+            state.buildFailures.maxFailureStreak = Math.max(state.buildFailures.maxFailureStreak, state.buildFailures.failureStreak);
+        });
+    }
+    addSuccessfulRun(occurredAt = this.now()) {
+        if (!this.isCapturing(occurredAt)) {
+            return;
+        }
+        this.mutate((state) => {
+            state.buildFailures.successfulRuns += 1;
+            if (state.buildFailures.failureStreak > 0) {
+                state.buildFailures.recoveredFailures += 1;
+                state.buildFailures.failureStreak = 0;
+            }
         });
     }
     applyAgentLogBatch(batch) {
@@ -181,7 +195,14 @@ function createEmptyState(agentFileCursors = {}) {
         detectedAgents: [],
         session: emptySession(),
         agentPrompts: { claudeCode: 0, codex: 0, githubCopilot: 0 },
-        buildFailures: { total: 0, byCategory: {} },
+        buildFailures: {
+            total: 0,
+            byCategory: {},
+            successfulRuns: 0,
+            recoveredFailures: 0,
+            failureStreak: 0,
+            maxFailureStreak: 0,
+        },
         tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
         agentFileCursors,
     };
@@ -241,6 +262,10 @@ function parseStoredState(value) {
         buildFailures: {
             total: safeNumber(failures.total),
             byCategory: parseNumberRecord(failures.byCategory),
+            successfulRuns: safeNumber(failures.successfulRuns),
+            recoveredFailures: safeNumber(failures.recoveredFailures),
+            failureStreak: safeNumber(failures.failureStreak),
+            maxFailureStreak: safeNumber(failures.maxFailureStreak),
         },
         tokenStats: {
             claudeCode: parseClaudeTokens(tokenStats.claudeCode),
@@ -330,6 +355,10 @@ function cloneState(state) {
         buildFailures: {
             total: state.buildFailures.total,
             byCategory: { ...state.buildFailures.byCategory },
+            successfulRuns: state.buildFailures.successfulRuns,
+            recoveredFailures: state.buildFailures.recoveredFailures,
+            failureStreak: state.buildFailures.failureStreak,
+            maxFailureStreak: state.buildFailures.maxFailureStreak,
         },
         tokenStats: {
             claudeCode: state.tokenStats.claudeCode

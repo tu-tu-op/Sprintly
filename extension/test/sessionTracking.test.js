@@ -178,3 +178,40 @@ test('terminal failures count only when their execution ends inside a session', 
     Date.now = originalNow;
   }
 });
+
+test('successful terminal runs recover a failure streak', async () => {
+  const originalNow = Date.now;
+  let now = 6_000;
+  Date.now = () => now;
+  try {
+    const store = new DailyStateStore(new TestMemento(), () => now);
+    store.startSession(now, 'recovery-session');
+    const tracker = new BuildFailureTracker(store);
+    const event = {
+      terminal,
+      shellIntegration: terminal.shellIntegration,
+      exitCode: 1,
+      execution: {
+        async *read() {
+          yield 'tests failed';
+        },
+      },
+    };
+
+    endShellExecution.fire(event);
+    await new Promise((resolve) => setImmediate(resolve));
+    now = 6_100;
+    endShellExecution.fire({ ...event, exitCode: 0 });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const failures = store.get().buildFailures;
+    assert.equal(failures.total, 1);
+    assert.equal(failures.recoveredFailures, 1);
+    assert.equal(failures.failureStreak, 0);
+    assert.equal(failures.maxFailureStreak, 1);
+    assert.equal(failures.successfulRuns, 1);
+    tracker.dispose();
+  } finally {
+    Date.now = originalNow;
+  }
+});

@@ -95,7 +95,7 @@ function buildPanelItems(tracker, trackerStats, state, summary) {
         items.push(item('code', 'Coding style', summary.codingSplit, tracker.archetype()));
     }
     if (trackerStats.startedAt) {
-        items.push(separator('ACTIVITY'), item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`), item('files', 'Files touched', String(trackerStats.activeFiles.size), `${trackerStats.fileSaves} saves · ${trackerStats.terminalCommands} terminal opens`));
+        items.push(separator('ACTIVITY'), item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`), item('files', 'Files touched', String(trackerStats.activeFiles.size), describeTerminalActivity(trackerStats)));
     }
     items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Build failures', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
     return items;
@@ -243,9 +243,25 @@ function describeFailures(state) {
         return 'No session data';
     const top = Object.entries(state.buildFailures.byCategory)
         .sort((left, right) => right[1] - left[1])[0];
-    return top
-        ? `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}`
-        : '0 total';
+    if (!top)
+        return '0 total';
+    const recovery = state.buildFailures.total > 0
+        && state.buildFailures.recoveredFailures > 0
+        ? ` · Recovery ${Math.round((state.buildFailures.recoveredFailures / state.buildFailures.total) * 100)}%`
+        : '';
+    const streak = state.buildFailures.failureStreak > 1
+        ? ` · ${state.buildFailures.failureStreak} failure streak`
+        : '';
+    return `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
+}
+function describeTerminalActivity(stats) {
+    const opens = stats.terminalOpens ?? 0;
+    const commands = stats.terminalCommands ?? 0;
+    const categories = Object.entries(stats.terminalCommandsByCategory ?? {})
+        .filter(([, count]) => count > 0)
+        .map(([category, count]) => `${formatCategory(category)} ${count}`)
+        .join(' · ');
+    return `${stats.fileSaves} saves · ${commands} commands · ${opens} terminal opens${categories ? ` · ${categories}` : ''}`;
 }
 function describeTokenUsage(state) {
     if (!state.session.id)

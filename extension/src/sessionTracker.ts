@@ -1,4 +1,9 @@
 import * as vscode from 'vscode';
+import {
+  classifyTerminalCommand,
+  emptyTerminalCommandCounts,
+  TerminalCommandCounts,
+} from './tracking/terminalCommands';
 
 export interface SessionStats {
   isRecording: boolean;
@@ -10,6 +15,8 @@ export interface SessionStats {
   activeFiles: Set<string>;
   linesChanged: number;
   terminalCommands: number;
+  terminalOpens: number;
+  terminalCommandsByCategory: TerminalCommandCounts;
   isPaused: boolean;
   totalPausedSeconds: number;
   pausedAt: Date | null;
@@ -28,6 +35,7 @@ export class SessionTracker implements vscode.Disposable {
       isRecording: false, startedAt: null, durationSeconds: 0,
       fileEdits: 0, fileSaves: 0, fileSwitches: 0,
       activeFiles: new Set(), linesChanged: 0, terminalCommands: 0,
+      terminalOpens: 0, terminalCommandsByCategory: emptyTerminalCommandCounts(),
       isPaused: false, totalPausedSeconds: 0, pausedAt: null,
     };
   }
@@ -73,7 +81,11 @@ export class SessionTracker implements vscode.Disposable {
   }
 
   get(): Readonly<SessionStats> {
-    return { ...this.stats, activeFiles: new Set(this.stats.activeFiles) };
+    return {
+      ...this.stats,
+      activeFiles: new Set(this.stats.activeFiles),
+      terminalCommandsByCategory: { ...this.stats.terminalCommandsByCategory },
+    };
   }
 
   archetype(): string {
@@ -120,8 +132,14 @@ export class SessionTracker implements vscode.Disposable {
       }),
       vscode.window.onDidOpenTerminal(() => {
         if (!this.stats.isRecording || this.stats.isPaused) return;
+        this.stats.terminalOpens++;
+      }),
+      vscode.window.onDidEndTerminalShellExecution((event) => {
+        if (!this.stats.isRecording || this.stats.isPaused) return;
+        const category = classifyTerminalCommand(event.execution.commandLine?.value);
         this.stats.terminalCommands++;
-      })
+        this.stats.terminalCommandsByCategory[category]++;
+      }),
     );
   }
 

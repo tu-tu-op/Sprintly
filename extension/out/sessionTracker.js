@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionTracker = void 0;
 const vscode = require("vscode");
+const terminalCommands_1 = require("./tracking/terminalCommands");
 class SessionTracker {
     constructor() {
         this.stats = this.blank();
@@ -15,6 +16,7 @@ class SessionTracker {
             isRecording: false, startedAt: null, durationSeconds: 0,
             fileEdits: 0, fileSaves: 0, fileSwitches: 0,
             activeFiles: new Set(), linesChanged: 0, terminalCommands: 0,
+            terminalOpens: 0, terminalCommandsByCategory: (0, terminalCommands_1.emptyTerminalCommandCounts)(),
             isPaused: false, totalPausedSeconds: 0, pausedAt: null,
         };
     }
@@ -58,7 +60,11 @@ class SessionTracker {
         this._emit();
     }
     get() {
-        return { ...this.stats, activeFiles: new Set(this.stats.activeFiles) };
+        return {
+            ...this.stats,
+            activeFiles: new Set(this.stats.activeFiles),
+            terminalCommandsByCategory: { ...this.stats.terminalCommandsByCategory },
+        };
     }
     archetype() {
         const s = this.stats;
@@ -105,7 +111,13 @@ class SessionTracker {
         }), vscode.window.onDidOpenTerminal(() => {
             if (!this.stats.isRecording || this.stats.isPaused)
                 return;
+            this.stats.terminalOpens++;
+        }), vscode.window.onDidEndTerminalShellExecution((event) => {
+            if (!this.stats.isRecording || this.stats.isPaused)
+                return;
+            const category = (0, terminalCommands_1.classifyTerminalCommand)(event.execution.commandLine?.value);
             this.stats.terminalCommands++;
+            this.stats.terminalCommandsByCategory[category]++;
         }));
     }
     _detach() {

@@ -8,6 +8,8 @@ exports.FAILURE_PATTERNS = [
     { id: 'missing_package', pattern: /command not found|is not recognized as an internal/i },
     { id: 'syntax_error', pattern: /SyntaxError|Unexpected token|ParseError/i },
     { id: 'type_error', pattern: /TypeError:|TS\d{4}:/i },
+    { id: 'test_failure', pattern: /failing|failed tests?|tests? failed|assertionerror|test suites? failed/i },
+    { id: 'lint_failure', pattern: /eslint|stylelint|lint errors?|lint failed/i },
     { id: 'file_not_found', pattern: /ENOENT|No such file or directory/i },
     { id: 'permission', pattern: /EACCES|Permission denied/i },
     { id: 'port_in_use', pattern: /EADDRINUSE|address already in use/i },
@@ -42,12 +44,15 @@ class BuildFailureTracker {
         if (!event.shellIntegration
             || !event.terminal.shellIntegration
             || !this.integratedTerminals.has(event.terminal)
-            || event.exitCode === undefined
-            || event.exitCode === 0) {
+            || event.exitCode === undefined) {
             return;
         }
         const occurredAt = Date.now();
         if (!this.store.isCapturing(occurredAt)) {
+            return;
+        }
+        if (event.exitCode === 0) {
+            this.store.addSuccessfulRun(occurredAt);
             return;
         }
         const output = await readBoundedOutput(event.execution);

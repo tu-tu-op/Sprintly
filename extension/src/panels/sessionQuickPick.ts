@@ -145,7 +145,7 @@ function buildPanelItems(
         'files',
         'Files touched',
         String(trackerStats.activeFiles.size),
-        `${trackerStats.fileSaves} saves · ${trackerStats.terminalCommands} terminal opens`,
+        describeTerminalActivity(trackerStats),
       ),
     );
   }
@@ -346,9 +346,25 @@ function describeFailures(state: Readonly<DailySprintlyState>): string {
   if (!state.session.id) return 'No session data';
   const top = Object.entries(state.buildFailures.byCategory)
     .sort((left, right) => right[1] - left[1])[0];
-  return top
-    ? `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}`
-    : '0 total';
+  if (!top) return '0 total';
+  const recovery = state.buildFailures.total > 0
+    && state.buildFailures.recoveredFailures > 0
+    ? ` · Recovery ${Math.round((state.buildFailures.recoveredFailures / state.buildFailures.total) * 100)}%`
+    : '';
+  const streak = state.buildFailures.failureStreak > 1
+    ? ` · ${state.buildFailures.failureStreak} failure streak`
+    : '';
+  return `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
+}
+
+function describeTerminalActivity(stats: Readonly<SessionStats>): string {
+  const opens = stats.terminalOpens ?? 0;
+  const commands = stats.terminalCommands ?? 0;
+  const categories = Object.entries(stats.terminalCommandsByCategory ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([category, count]) => `${formatCategory(category)} ${count}`)
+    .join(' · ');
+  return `${stats.fileSaves} saves · ${commands} commands · ${opens} terminal opens${categories ? ` · ${categories}` : ''}`;
 }
 
 function describeTokenUsage(state: Readonly<DailySprintlyState>): string {
