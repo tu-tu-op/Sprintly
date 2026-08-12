@@ -128,8 +128,14 @@ function buildPanelItems(
   const items: SessionPanelItem[] = [
     separator('SESSION'),
     item(statusIcon(summary.status), summary.status, summary.duration,
-      state.session.id ? `${summary.codingSplit} · ${tracker.archetype()}` : 'Start a sprint when you are ready.'),
+      state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
   ];
+
+  if (state.session.id) {
+    items.push(
+      item('code', 'Coding style', summary.codingSplit, tracker.archetype()),
+    );
+  }
 
   if (trackerStats.startedAt) {
     items.push(
@@ -150,7 +156,7 @@ function buildPanelItems(
     metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'),
     separator('RELIABILITY'),
     metricItem('error', 'Build failures', summary.buildFailures, 'failures'),
-    metricItem('code', 'Coding split', summary.codingSplit, 'coding'),
+    metricItem('code', 'Coding split details', summary.codingSplit, 'coding'),
     separator('CONTROLS'),
     ...buildControlItems(trackerStats, state),
   );

@@ -4,9 +4,14 @@ exports.showStatusPanel = void 0;
 exports.registerCommands = registerCommands;
 const vscode = require("vscode");
 const sessionQuickPick_1 = require("./panels/sessionQuickPick");
+const consentFlow_1 = require("./consentFlow");
 function registerCommands(context, tracker, statusBar, sessionStore, agentLogWatcher) {
     const refresh = () => statusBar.update();
     const start = async () => {
+        if (!(0, consentFlow_1.isSprintlyEnabled)()) {
+            void vscode.window.showInformationMessage('Sprintly is disabled in Settings.');
+            return;
+        }
         await agentLogWatcher.scanNow();
         sessionStore.startSession();
         tracker.start();

@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { registerCommands } from './commands';
-import { runConsentFlow } from './consentFlow';
+import { isSprintlyEnabled, runConsentFlow } from './consentFlow';
 import { SessionTracker } from './sessionTracker';
 import { initStatusBar } from './panels/statusBar';
 import { AgentLogWatcher } from './tracking/agentLogWatcher';
@@ -39,7 +39,9 @@ export function activate(context: vscode.ExtensionContext): void {
     dailyStore,
   );
   registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher);
-  void agentLogWatcher.start().catch(() => undefined);
+  if (isSprintlyEnabled()) {
+    void agentLogWatcher.start().catch(() => undefined);
+  }
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sprintly.shareSession', () => {
@@ -75,7 +77,7 @@ export function activate(context: vscode.ExtensionContext): void {
     tracker.start();
     statusBar.update();
     showInfo('Sprintly session started.');
-  }).catch(() => undefined);
+  }, context).catch(() => undefined);
 }
 
 export function deactivate(): void {}

@@ -3,6 +3,7 @@ import { SESSION_PANEL_COMMAND, showStatusPanel } from './panels/sessionQuickPic
 import { SessionTracker } from './sessionTracker';
 import { AgentLogWatcher } from './tracking/agentLogWatcher';
 import { DailyStateStore } from './tracking/dailyStateStore';
+import { isSprintlyEnabled } from './consentFlow';
 
 interface StatusBarUpdater {
   update(): void;
@@ -18,6 +19,10 @@ export function registerCommands(
   const refresh = (): void => statusBar.update();
 
   const start = async (): Promise<void> => {
+    if (!isSprintlyEnabled()) {
+      void vscode.window.showInformationMessage('Sprintly is disabled in Settings.');
+      return;
+    }
     await agentLogWatcher.scanNow();
     sessionStore.startSession();
     tracker.start();

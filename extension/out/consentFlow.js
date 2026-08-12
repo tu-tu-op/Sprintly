@@ -2,9 +2,13 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.START_SPRINT_LABEL = void 0;
 exports.requestSessionStart = requestSessionStart;
+exports.shouldPromptOnStartup = shouldPromptOnStartup;
+exports.isSprintlyEnabled = isSprintlyEnabled;
+exports.isAutoPromptEnabled = isAutoPromptEnabled;
 exports.runConsentFlow = runConsentFlow;
 const vscode = require("vscode");
 exports.START_SPRINT_LABEL = '$(play) Start Sprint';
+const STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
 async function requestSessionStart() {
     const choice = await vscode.window.showQuickPick([
         {
@@ -34,9 +38,46 @@ async function requestSessionStart() {
     });
     return choice?.action === 'start';
 }
-async function runConsentFlow(onAccept) {
+async function shouldPromptOnStartup(context) {
+    if (!isSprintlyEnabled() || !isAutoPromptEnabled()) {
+        return false;
+    }
+    const workspaceKey = getWorkspaceKey();
+    const marker = `${process.pid}:${workspaceKey}`;
+    if (context.workspaceState.get(STARTUP_PROMPT_MARKER) === marker) {
+        return false;
+    }
+    await context.workspaceState.update(STARTUP_PROMPT_MARKER, marker);
+    return true;
+}
+function isSprintlyEnabled() {
+    return getSprintlyConfiguration().get('enabled', true) !== false;
+}
+function isAutoPromptEnabled() {
+    return getSprintlyConfiguration().get('autoPromptOnStartup', true) !== false;
+}
+async function runConsentFlow(onAccept, context) {
+    if (context && !(await shouldPromptOnStartup(context))) {
+        return;
+    }
     if (await requestSessionStart()) {
         await onAccept();
     }
+}
+function getSprintlyConfiguration() {
+    if (vscode.workspace?.getConfiguration) {
+        return vscode.workspace.getConfiguration('sprintly');
+    }
+    return { get: (_key, defaultValue) => defaultValue };
+}
+function getWorkspaceKey() {
+    const workspaceFile = vscode.workspace?.workspaceFile?.toString();
+    if (workspaceFile) {
+        return workspaceFile;
+    }
+    const folders = (vscode.workspace?.workspaceFolders ?? [])
+        .map((folder) => folder.uri.toString())
+        .sort();
+    return folders.join('|') || 'untitled';
 }
 //# sourceMappingURL=consentFlow.js.map

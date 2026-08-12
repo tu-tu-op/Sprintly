@@ -89,12 +89,15 @@ function buildSessionPanelSummary(trackerStats, state) {
 function buildPanelItems(tracker, trackerStats, state, summary) {
     const items = [
         separator('SESSION'),
-        item(statusIcon(summary.status), summary.status, summary.duration, state.session.id ? `${summary.codingSplit} · ${tracker.archetype()}` : 'Start a sprint when you are ready.'),
+        item(statusIcon(summary.status), summary.status, summary.duration, state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
     ];
+    if (state.session.id) {
+        items.push(item('code', 'Coding style', summary.codingSplit, tracker.archetype()));
+    }
     if (trackerStats.startedAt) {
         items.push(separator('ACTIVITY'), item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`), item('files', 'Files touched', String(trackerStats.activeFiles.size), `${trackerStats.fileSaves} saves · ${trackerStats.terminalCommands} terminal opens`));
     }
-    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Build failures', summary.buildFailures, 'failures'), metricItem('code', 'Coding split', summary.codingSplit, 'coding'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
+    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Build failures', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
     return items;
 }
 function buildControlItems(trackerStats, state) {

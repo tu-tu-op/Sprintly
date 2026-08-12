@@ -24,7 +24,9 @@ function activate(context) {
     const statusBar = (0, statusBar_1.initStatusBar)(context, tracker, dailyStore);
     context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore);
     (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher);
-    void agentLogWatcher.start().catch(() => undefined);
+    if ((0, consentFlow_1.isSprintlyEnabled)()) {
+        void agentLogWatcher.start().catch(() => undefined);
+    }
     context.subscriptions.push(vscode.commands.registerCommand('sprintly.shareSession', () => {
         showInfo('Sprintly session sharing is coming soon.');
     }), vscode.commands.registerCommand('sprintly.saveSession', () => {
@@ -56,7 +58,7 @@ function activate(context) {
         tracker.start();
         statusBar.update();
         showInfo('Sprintly session started.');
-    }).catch(() => undefined);
+    }, context).catch(() => undefined);
 }
 function deactivate() { }
 async function pickDevScreen() {
