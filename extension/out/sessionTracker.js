@@ -63,18 +63,18 @@ class SessionTracker {
     archetype() {
         const s = this.stats;
         if (s.durationSeconds < 30)
-            return '🌱 Just warming up';
+            return 'Just warming up';
         const epm = (s.fileEdits / Math.max(s.durationSeconds, 1)) * 60;
         const tpi = s.terminalCommands / Math.max(s.durationSeconds / 60, 1);
         if (tpi > 5)
-            return '⚡ Terminal Warrior';
+            return 'Terminal Warrior';
         if (epm > 20)
-            return '🔥 Vibe Coder';
+            return 'Vibe Coder';
         if (s.fileSaves > s.fileEdits * 0.8)
-            return '🎯 Precision Coder';
+            return 'Precision Coder';
         if (s.linesChanged > 200)
-            return '🚀 Hardcore Sprint';
-        return '🧘 Steady Builder';
+            return 'Hardcore Sprint';
+        return 'Steady Builder';
     }
     _emit() { this.onDidUpdate.fire(this.get()); }
     _startTick() {

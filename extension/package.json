@@ -14,8 +14,8 @@
       { "command": "sprintly.pauseSession",    "title": "Sprintly: Pause Session" },
       { "command": "sprintly.resumeSession",   "title": "Sprintly: Resume Session" },
       { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
-      { "command": "sprintly.showStatusPanel", "title": "Show Status Panel",      "category": "Sprintly" },
-      { "command": "sprintly.openPanel",       "title": "Open Sprintly Panel",    "category": "Sprintly" },
+      { "command": "sprintly.showStatusPanel", "title": "Open Quick Panel",       "category": "Sprintly" },
+      { "command": "sprintly.openPanel",       "title": "Open Quick Panel",       "category": "Sprintly" },
       { "command": "sprintly.shareSession",    "title": "Share Session",          "category": "Sprintly" },
       { "command": "sprintly.saveSession",     "title": "Save Session",           "category": "Sprintly" },
       { "command": "sprintly.devOpenScreen",   "title": "Dev: Jump to Screen",    "category": "Sprintly" }

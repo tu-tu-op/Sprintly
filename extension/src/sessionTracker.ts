@@ -78,14 +78,14 @@ export class SessionTracker implements vscode.Disposable {
 
   archetype(): string {
     const s = this.stats;
-    if (s.durationSeconds < 30) return '🌱 Just warming up';
+    if (s.durationSeconds < 30) return 'Just warming up';
     const epm = (s.fileEdits / Math.max(s.durationSeconds, 1)) * 60;
     const tpi = s.terminalCommands / Math.max(s.durationSeconds / 60, 1);
-    if (tpi > 5)           return '⚡ Terminal Warrior';
-    if (epm > 20)          return '🔥 Vibe Coder';
-    if (s.fileSaves > s.fileEdits * 0.8) return '🎯 Precision Coder';
-    if (s.linesChanged > 200)            return '🚀 Hardcore Sprint';
-    return '🧘 Steady Builder';
+    if (tpi > 5)           return 'Terminal Warrior';
+    if (epm > 20)          return 'Vibe Coder';
+    if (s.fileSaves > s.fileEdits * 0.8) return 'Precision Coder';
+    if (s.linesChanged > 200)            return 'Hardcore Sprint';
+    return 'Steady Builder';
   }
 
   private _emit(): void { this.onDidUpdate.fire(this.get()); }
