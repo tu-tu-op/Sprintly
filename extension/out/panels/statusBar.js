@@ -37,7 +37,7 @@ class SprintlyPanelStatusBar {
             else {
                 this.item.text = `$(zap) Sprintly  ·  #${stats.currentRank}`;
             }
-            this.item.tooltip = buildTooltip(session?.isRecording ?? false, this.dailyStore?.get());
+            this.item.tooltip = buildTooltip(session?.isRecording ?? false, (session?.durationSeconds ?? 0) * 1000, this.dailyStore?.get());
         }
         catch {
             this.item.text = '$(zap) Sprintly  ·  —';
@@ -47,7 +47,7 @@ class SprintlyPanelStatusBar {
         this.item.dispose();
     }
 }
-function buildTooltip(isActive, daily) {
+function buildTooltip(isActive, sessionDurationMs, daily) {
     const stats = (0, sprintlyPanels_1.demoStats)();
     const tooltip = new vscode.MarkdownString('', true);
     tooltip.isTrusted = true;
@@ -58,15 +58,17 @@ function buildTooltip(isActive, daily) {
     const goalMax = stats.weeklyGoalMax ?? 1;
     tooltip.appendMarkdown(`Weekly goal: \`${(0, sprintlyPanels_1.makeProgressBar)(goalCurrent, goalMax)}\` ${goalCurrent}/${goalMax}\n\n`);
     if (isActive) {
-        tooltip.appendMarkdown(`Active session: **${(0, sprintlyPanels_1.formatDuration)(6443000)}**\n\n`);
+        tooltip.appendMarkdown(`Active session: **${(0, sprintlyPanels_1.formatDuration)(sessionDurationMs)}**\n\n`);
     }
-    if (daily) {
+    if (daily?.session.id) {
         const topFailure = Object.entries(daily.buildFailures.byCategory)
             .sort((left, right) => right[1] - left[1])[0];
         const detectedAgents = daily.detectedAgents;
-        const promptSummary = detectedAgents.map((agent) => agent === 'claude-code'
+        const promptParts = detectedAgents.map((agent) => agent === 'claude-code'
             ? `Claude ${daily.agentPrompts.claudeCode}`
             : `Codex ${daily.agentPrompts.codex}`).join(' · ');
+        const promptTotal = daily.agentPrompts.claudeCode + daily.agentPrompts.codex;
+        const promptSummary = promptParts ? `${promptTotal} total · ${promptParts}` : '';
         const tokenEstimates = [];
         if (detectedAgents.includes('claude-code')) {
             const claude = daily.tokenStats.claudeCode;
@@ -79,7 +81,7 @@ function buildTooltip(isActive, daily) {
                 ? 'Codex — (est.)'
                 : `Codex ${formatTokenEstimate(daily.tokenStats.codex.total)} (est.)`);
         }
-        tooltip.appendMarkdown('### Today\n\n');
+        tooltip.appendMarkdown(`### ${daily.session.isActive ? 'Current session' : 'Last session'}\n\n`);
         tooltip.appendMarkdown(`Session split: **Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}**\n\n`);
         tooltip.appendMarkdown(`Agent prompts: **${promptSummary || 'Detecting local agent logs…'}**\n\n`);
         tooltip.appendMarkdown(`Build failures: **${daily.buildFailures.total}${topFailure ? ` · Top: ${formatFailureCategory(topFailure[0])} ${topFailure[1]}` : ''}**\n\n`);

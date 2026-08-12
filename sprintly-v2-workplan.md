@@ -4,6 +4,21 @@
 > what to build in each feature. It is not currently present in the repository or
 > alongside the supplied workplan, so exact-shape checks remain limited to this plan.
 
+## Per-session accounting clarification (2026-08-12)
+
+Prompt counts, token usage, build failures, and hardcode/vibecode duration are scoped
+to one explicit Sprintly recording rather than combined across the local day. Starting
+a recording creates a fresh session record; pausing excludes activity; stopping keeps
+the completed session visible; starting again resets the metrics while retaining file
+cursors so agent logs are never replayed.
+
+Implementation was split into independently verified commits:
+
+1. Session-scoped persisted state and migration (`34f12f9`).
+2. Recording lifecycle, activity, and build-failure gates (`6989afd`).
+3. Timestamp-windowed agent prompt and token accounting (`fb63654`).
+4. Current/last-session UI wording and final acceptance pass (this phase).
+
 ## How to use this file
 
 1. Read this file before writing feature code.
@@ -178,6 +193,16 @@ Prerequisite: Phase 6 done.
 | 4 | Live pricing change updates the estimate | `TBD` |
 
 ## Session log
+
+### 2026-08-12 — Per-session accounting follow-up
+
+- Worked on: recording lifecycle boundaries for coding activity, Claude Code and Codex
+  prompts/tokens, terminal failures, persisted log cursors, and QuickPick/status-bar
+  summaries.
+- Verified: TypeScript strict compilation and seven automated tests covering session
+  resets, pause/stop boundaries, interrupted reopen behavior, cursor advancement,
+  activity gaps, terminal failures, malformed JSONL, and prompt/token windowing.
+- Git: each implementation phase was committed separately as listed above.
 
 ### 2026-08-12 — Phase 0
 

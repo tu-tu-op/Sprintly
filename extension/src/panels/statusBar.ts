@@ -55,6 +55,7 @@ class SprintlyPanelStatusBar implements SprintlyStatusBarController {
       }
       this.item.tooltip = buildTooltip(
         session?.isRecording ?? false,
+        (session?.durationSeconds ?? 0) * 1000,
         this.dailyStore?.get(),
       );
     } catch {
@@ -69,6 +70,7 @@ class SprintlyPanelStatusBar implements SprintlyStatusBarController {
 
 function buildTooltip(
   isActive: boolean,
+  sessionDurationMs: number,
   daily?: Readonly<DailySprintlyState>,
 ): vscode.MarkdownString {
   const stats = demoStats();
@@ -84,16 +86,18 @@ function buildTooltip(
   tooltip.appendMarkdown(`Weekly goal: \`${makeProgressBar(goalCurrent, goalMax)}\` ${goalCurrent}/${goalMax}\n\n`);
 
   if (isActive) {
-    tooltip.appendMarkdown(`Active session: **${formatDuration(6443000)}**\n\n`);
+    tooltip.appendMarkdown(`Active session: **${formatDuration(sessionDurationMs)}**\n\n`);
   }
 
-  if (daily) {
+  if (daily?.session.id) {
     const topFailure = Object.entries(daily.buildFailures.byCategory)
       .sort((left, right) => right[1] - left[1])[0];
     const detectedAgents = daily.detectedAgents;
-    const promptSummary = detectedAgents.map((agent) => agent === 'claude-code'
+    const promptParts = detectedAgents.map((agent) => agent === 'claude-code'
       ? `Claude ${daily.agentPrompts.claudeCode}`
       : `Codex ${daily.agentPrompts.codex}`).join(' · ');
+    const promptTotal = daily.agentPrompts.claudeCode + daily.agentPrompts.codex;
+    const promptSummary = promptParts ? `${promptTotal} total · ${promptParts}` : '';
     const tokenEstimates: string[] = [];
     if (detectedAgents.includes('claude-code')) {
       const claude = daily.tokenStats.claudeCode;
@@ -107,7 +111,7 @@ function buildTooltip(
         : `Codex ${formatTokenEstimate(daily.tokenStats.codex.total)} (est.)`);
     }
 
-    tooltip.appendMarkdown('### Today\n\n');
+    tooltip.appendMarkdown(`### ${daily.session.isActive ? 'Current session' : 'Last session'}\n\n`);
     tooltip.appendMarkdown(`Session split: **Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}**\n\n`);
     tooltip.appendMarkdown(`Agent prompts: **${promptSummary || 'Detecting local agent logs…'}**\n\n`);
     tooltip.appendMarkdown(`Build failures: **${daily.buildFailures.total}${topFailure ? ` · Top: ${formatFailureCategory(topFailure[0])} ${topFailure[1]}` : ''}**\n\n`);

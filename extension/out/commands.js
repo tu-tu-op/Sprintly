@@ -121,25 +121,25 @@ async function showStatusPanel(tracker, dailyStore) {
             alwaysShow: true,
         },
         {
-            label: '$(code) Session split today',
+            label: '$(code) Session coding split',
             description: `Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}`,
             trackingDetail: 'session',
             alwaysShow: true,
         },
         {
-            label: '$(copilot) Agent prompts today',
+            label: '$(copilot) Agent prompts this session',
             description: describeAgentPrompts(daily),
             trackingDetail: 'prompts',
             alwaysShow: true,
         },
         {
-            label: '$(error) Build failures today',
+            label: '$(error) Build failures this session',
             description: describeFailures(daily),
             trackingDetail: 'failures',
             alwaysShow: true,
         },
         {
-            label: '$(symbol-numeric) Token estimate today',
+            label: '$(symbol-numeric) Token estimate this session',
             description: describeTokenEstimate(daily),
             trackingDetail: 'tokens',
             alwaysShow: true,
@@ -222,23 +222,23 @@ async function showTrackingDetail(detail, daily) {
     let title;
     let items;
     if (detail === 'session') {
-        title = 'Sprintly · Session Split Today';
+        title = sessionDetailTitle(daily, 'Coding Split');
         items = [
             { label: '$(code) Hardcode', description: formatDailyDuration(daily.session.hardcodeMs) },
             { label: '$(sparkle) Vibecode', description: formatDailyDuration(daily.session.vibecodeMs) },
         ];
     }
     else if (detail === 'prompts') {
-        title = 'Sprintly · Agent Prompts Today';
+        title = sessionDetailTitle(daily, 'Agent Prompts');
         items = daily.detectedAgents.map((agent) => agent === 'claude-code'
             ? { label: '$(copilot) Claude Code', description: String(daily.agentPrompts.claudeCode) }
             : { label: '$(terminal) Codex', description: String(daily.agentPrompts.codex) });
         if (items.length === 0) {
-            items = [{ label: '$(search) Detecting local agent logs', description: 'No agent detected today' }];
+            items = [{ label: '$(search) Detecting local agent logs', description: sessionEmptyLabel(daily) }];
         }
     }
     else if (detail === 'failures') {
-        title = 'Sprintly · Build Failures Today';
+        title = sessionDetailTitle(daily, 'Build Failures');
         const categories = Object.entries(daily.buildFailures.byCategory)
             .sort((left, right) => right[1] - left[1]);
         items = categories.length > 0
@@ -249,7 +249,7 @@ async function showTrackingDetail(detail, daily) {
             : [{ label: '$(check) No failures', description: '0' }];
     }
     else {
-        title = 'Sprintly · Token Estimate Today';
+        title = sessionDetailTitle(daily, 'Token Estimate');
         const claude = daily.tokenStats.claudeCode;
         items = [];
         if (daily.detectedAgents.includes('claude-code')) {
@@ -277,7 +277,7 @@ async function showTrackingDetail(detail, daily) {
         if (items.length === 0) {
             items = [{
                     label: '$(search) Detecting token estimate source',
-                    description: 'No agent detected today · est. unavailable',
+                    description: `${sessionEmptyLabel(daily)} · est. unavailable`,
                 }];
         }
     }
@@ -299,7 +299,11 @@ function describeAgentPrompts(daily) {
     const agents = daily.detectedAgents.map((agent) => agent === 'claude-code'
         ? `Claude ${daily.agentPrompts.claudeCode}`
         : `Codex ${daily.agentPrompts.codex}`);
-    return agents.length > 0 ? agents.join(' · ') : 'Detecting local agent logs…';
+    if (agents.length === 0) {
+        return daily.session.id ? 'No agent prompts yet' : 'Start a session to begin counting';
+    }
+    const total = daily.agentPrompts.claudeCode + daily.agentPrompts.codex;
+    return `${total} total · ${agents.join(' · ')}`;
 }
 function describeTokenEstimate(daily) {
     const agents = [];
@@ -314,7 +318,18 @@ function describeTokenEstimate(daily) {
             ? 'Codex — (est.)'
             : `Codex ${formatTokens(daily.tokenStats.codex.total)} (est.)`);
     }
-    return agents.length > 0 ? agents.join(' · ') : 'Detecting agent logs · est. unavailable';
+    return agents.length > 0
+        ? agents.join(' · ')
+        : daily.session.id
+            ? 'No token usage yet · est. unavailable'
+            : 'Start a session to begin counting';
+}
+function sessionDetailTitle(state, detail) {
+    const scope = state.session.isActive ? 'Current Session' : 'Last Session';
+    return `Sprintly · ${scope} · ${detail}`;
+}
+function sessionEmptyLabel(state) {
+    return state.session.id ? 'No agent detected in this session' : 'No Sprintly session yet';
 }
 function totalClaudeTokens(tokens) {
     return tokens.input + tokens.output + tokens.cacheRead + tokens.cacheCreate;
