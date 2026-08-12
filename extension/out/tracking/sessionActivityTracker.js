@@ -23,7 +23,7 @@ class SessionActivityTracker {
                     this.recordNeutralEdit(uri);
                     continue;
                 }
-                const category = classifyChange(change.text);
+                const category = classifyChange(change.text, change.rangeLength);
                 this.lastEditCategories.set(uri, category);
                 this.recordTextHeartbeat(uri, category, Date.now());
             }
@@ -97,9 +97,11 @@ class SessionActivityTracker {
     }
 }
 exports.SessionActivityTracker = SessionActivityTracker;
-function classifyChange(text) {
-    const newlineCount = text.match(/\n/g)?.length ?? 0;
-    return text.length >= 50 || newlineCount >= 2 ? 'vibecode' : 'hardcode';
+function classifyChange(text, replacedLength = 0) {
+    // VS Code does not expose which completion provider authored a document change.
+    // Normal typing arrives one character at a time, while accepted inline fixes,
+    // completions, and pasted edits arrive as multi-character inserts or replacements.
+    return text.length > 1 || replacedLength > 0 ? 'vibecode' : 'hardcode';
 }
 function getLifecycleKey(store) {
     const session = store.get().session;

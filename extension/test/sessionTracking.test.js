@@ -54,7 +54,7 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
 };
 
 const { DailyStateStore } = require('../out/tracking/dailyStateStore');
-const { SessionActivityTracker } = require('../out/tracking/sessionActivityTracker');
+const { SessionActivityTracker, classifyChange } = require('../out/tracking/sessionActivityTracker');
 const { BuildFailureTracker } = require('../out/tracking/buildFailureTracker');
 Module._load = originalLoad;
 
@@ -85,7 +85,7 @@ test('activity duration does not bridge pause or stopped periods', () => {
     now = 1_100;
     changeDocument.fire({
       document: activeDocument,
-      contentChanges: [{ text: 'const value = 1;', rangeLength: 0 }],
+      contentChanges: [{ text: 'a', rangeLength: 0 }],
     });
     now = 1_300;
     saveDocument.fire(activeDocument);
@@ -105,6 +105,39 @@ test('activity duration does not bridge pause or stopped periods', () => {
     now = 2_600;
     saveDocument.fire(activeDocument);
     assert.equal(store.get().session.hardcodeMs, 400);
+    tracker.dispose();
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('short Copilot-style inline edits count as vibecode', () => {
+  assert.equal(classifyChange('a', 0), 'hardcode');
+  assert.equal(classifyChange('\n', 0), 'hardcode');
+  assert.equal(classifyChange('value', 0), 'vibecode');
+  assert.equal(classifyChange('x', 4), 'vibecode');
+});
+
+test('accepted inline completion increments the session vibe duration', () => {
+  const originalNow = Date.now;
+  let now = 3_000;
+  Date.now = () => now;
+  try {
+    const store = new DailyStateStore(new TestMemento(), () => now);
+    store.startSession(now, 'copilot-session');
+    const tracker = new SessionActivityTracker(store);
+    const activeDocument = document('file:///workspace/copilot.ts');
+
+    now = 3_100;
+    changeDocument.fire({
+      document: activeDocument,
+      contentChanges: [{ text: 'fixedValue', rangeLength: 3 }],
+    });
+    now = 3_350;
+    saveDocument.fire(activeDocument);
+
+    assert.equal(store.get().session.vibecodeMs, 250);
+    assert.equal(store.get().session.hardcodeMs, 0);
     tracker.dispose();
   } finally {
     Date.now = originalNow;
