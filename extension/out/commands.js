@@ -3,14 +3,10 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.showStatusPanel = void 0;
 exports.registerCommands = registerCommands;
 const vscode = require("vscode");
-const consentFlow_1 = require("./consentFlow");
 const sessionQuickPick_1 = require("./panels/sessionQuickPick");
 function registerCommands(context, tracker, statusBar, sessionStore, agentLogWatcher) {
     const refresh = () => statusBar.update();
     const start = async () => {
-        if (!(await (0, consentFlow_1.requestSessionStart)())) {
-            return;
-        }
         await agentLogWatcher.scanNow();
         sessionStore.startSession();
         tracker.start();
@@ -43,7 +39,7 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
         tracker.reset();
         refresh();
     };
-    context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', start), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.showStatusPanel', () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore)));
+    context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', start), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand(sessionQuickPick_1.SESSION_PANEL_COMMAND, () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore)), vscode.commands.registerCommand('sprintly.openPanel', () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore)));
 }
 var sessionQuickPick_2 = require("./panels/sessionQuickPick");
 Object.defineProperty(exports, "showStatusPanel", { enumerable: true, get: function () { return sessionQuickPick_2.showStatusPanel; } });

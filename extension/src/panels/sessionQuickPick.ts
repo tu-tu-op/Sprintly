@@ -3,6 +3,8 @@ import { SessionStats, SessionTracker } from '../sessionTracker';
 import { DailySprintlyState, DailyStateStore } from '../tracking/dailyStateStore';
 import { estimateClaudeCost } from '../tracking/pricing';
 
+export const SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
+
 type MetricDetail = 'coding' | 'prompts' | 'failures' | 'tokens';
 type PanelAction = 'start' | 'pause' | 'resume' | 'stop' | 'reset' | 'settings';
 

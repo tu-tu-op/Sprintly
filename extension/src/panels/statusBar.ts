@@ -1,65 +1,83 @@
 import * as vscode from 'vscode';
-import { SessionTracker } from '../sessionTracker';
-import { demoStats, formatDuration, formatTimer, makeProgressBar } from './sprintlyPanels';
+import { SessionStats, SessionTracker } from '../sessionTracker';
 import { DailySprintlyState, DailyStateStore } from '../tracking/dailyStateStore';
-import { estimateClaudeCost } from '../tracking/pricing';
+import {
+  buildSessionPanelSummary,
+  SESSION_PANEL_COMMAND,
+  SessionPanelSummary,
+} from './sessionQuickPick';
 
 export interface SprintlyStatusBarController extends vscode.Disposable {
   update(): void;
 }
 
+export interface StatusBarPresentation {
+  text: string;
+  summary: SessionPanelSummary;
+}
+
 export function initStatusBar(
   context: vscode.ExtensionContext,
-  tracker?: SessionTracker,
-  dailyStore?: DailyStateStore,
+  tracker: SessionTracker,
+  sessionStore: DailyStateStore,
 ): SprintlyStatusBarController {
   const item = vscode.window.createStatusBarItem(
     'sprintly.statusbar',
     vscode.StatusBarAlignment.Left,
     100,
   );
-  const controller = new SprintlyPanelStatusBar(item, tracker, dailyStore);
+  const controller = new SprintlyPanelStatusBar(item, tracker, sessionStore);
 
   item.name = 'Sprintly';
-  item.command = 'sprintly.openPanel';
+  item.command = SESSION_PANEL_COMMAND;
   item.show();
   controller.update();
 
-  context.subscriptions.push(controller);
-  if (tracker) {
-    context.subscriptions.push(tracker.onDidUpdate.event(() => controller.update()));
-  }
-  if (dailyStore) {
-    context.subscriptions.push(dailyStore.onDidUpdate(() => controller.update()));
-  }
+  context.subscriptions.push(
+    controller,
+    tracker.onDidUpdate.event(() => controller.update()),
+    sessionStore.onDidUpdate(() => controller.update()),
+  );
 
   return controller;
+}
+
+export function buildStatusBarPresentation(
+  trackerStats: Readonly<SessionStats>,
+  state: Readonly<DailySprintlyState>,
+): StatusBarPresentation {
+  const summary = buildSessionPanelSummary(trackerStats, state);
+  let text: string;
+  if (summary.status === 'In progress') {
+    text = `$(debug-start) Sprintly · ${summary.duration}`;
+  } else if (summary.status === 'Paused') {
+    text = `$(debug-pause) Sprintly · ${summary.duration}`;
+  } else if (summary.status === 'Completed') {
+    text = '$(history) Sprintly · Last sprint';
+  } else {
+    text = '$(circle-outline) Sprintly · Ready';
+  }
+  return { text, summary };
 }
 
 class SprintlyPanelStatusBar implements SprintlyStatusBarController {
   constructor(
     private readonly item: vscode.StatusBarItem,
-    private readonly tracker?: SessionTracker,
-    private readonly dailyStore?: DailyStateStore,
+    private readonly tracker: SessionTracker,
+    private readonly sessionStore: DailyStateStore,
   ) {}
 
   update(): void {
     try {
-      const stats = demoStats();
-      const session = this.tracker?.get();
-      if (session?.isRecording) {
-        const rankArrow = session.isPaused ? '⏸' : '↑';
-        this.item.text = `$(debug-start) ${formatTimer(session.durationSeconds * 1000)}  ·  #3 ${rankArrow}`;
-      } else {
-        this.item.text = `$(zap) Sprintly  ·  #${stats.currentRank}`;
-      }
-      this.item.tooltip = buildTooltip(
-        session?.isRecording ?? false,
-        (session?.durationSeconds ?? 0) * 1000,
-        this.dailyStore?.get(),
+      const presentation = buildStatusBarPresentation(
+        this.tracker.get(),
+        this.sessionStore.get(),
       );
+      this.item.text = presentation.text;
+      this.item.tooltip = buildTooltip(presentation.summary);
     } catch {
-      this.item.text = '$(zap) Sprintly  ·  —';
+      this.item.text = '$(circle-outline) Sprintly · Ready';
+      this.item.tooltip = 'Open Sprintly Quick Panel';
     }
   }
 
@@ -68,76 +86,20 @@ class SprintlyPanelStatusBar implements SprintlyStatusBarController {
   }
 }
 
-function buildTooltip(
-  isActive: boolean,
-  sessionDurationMs: number,
-  daily?: Readonly<DailySprintlyState>,
-): vscode.MarkdownString {
-  const stats = demoStats();
+function buildTooltip(summary: SessionPanelSummary): vscode.MarkdownString {
   const tooltip = new vscode.MarkdownString('', true);
   tooltip.isTrusted = true;
   tooltip.supportThemeIcons = true;
 
-  tooltip.appendMarkdown('### $(zap) Sprintly\n\n');
-  tooltip.appendMarkdown(`Rank: **#${isActive ? 3 : stats.currentRank}** · Streak: **${stats.streakDays} days**\n\n`);
-
-  const goalCurrent = stats.weeklyGoalCurrent ?? 0;
-  const goalMax = stats.weeklyGoalMax ?? 1;
-  tooltip.appendMarkdown(`Weekly goal: \`${makeProgressBar(goalCurrent, goalMax)}\` ${goalCurrent}/${goalMax}\n\n`);
-
-  if (isActive) {
-    tooltip.appendMarkdown(`Active session: **${formatDuration(sessionDurationMs)}**\n\n`);
-  }
-
-  if (daily?.session.id) {
-    const topFailure = Object.entries(daily.buildFailures.byCategory)
-      .sort((left, right) => right[1] - left[1])[0];
-    const detectedAgents = daily.detectedAgents;
-    const promptParts = detectedAgents.map((agent) => agent === 'claude-code'
-      ? `Claude ${daily.agentPrompts.claudeCode}`
-      : `Codex ${daily.agentPrompts.codex}`).join(' · ');
-    const promptTotal = daily.agentPrompts.claudeCode + daily.agentPrompts.codex;
-    const promptSummary = promptParts ? `${promptTotal} total · ${promptParts}` : '';
-    const tokenEstimates: string[] = [];
-    if (detectedAgents.includes('claude-code')) {
-      const claude = daily.tokenStats.claudeCode;
-      tokenEstimates.push(claude
-        ? `Claude ${formatTokenEstimate(claude.input + claude.output + claude.cacheRead + claude.cacheCreate)} · est. $${estimateClaudeCost(claude).toFixed(2)}`
-        : 'Claude — (est.)');
-    }
-    if (detectedAgents.includes('codex')) {
-      tokenEstimates.push(daily.tokenStats.codex === 'unavailable'
-        ? 'Codex — (est.)'
-        : `Codex ${formatTokenEstimate(daily.tokenStats.codex.total)} (est.)`);
-    }
-
-    tooltip.appendMarkdown(`### ${daily.session.isActive ? 'Current session' : 'Last session'}\n\n`);
-    tooltip.appendMarkdown(`Session split: **Hard ${formatDailyDuration(daily.session.hardcodeMs)} · Vibe ${formatDailyDuration(daily.session.vibecodeMs)}**\n\n`);
-    tooltip.appendMarkdown(`Agent prompts: **${promptSummary || 'Detecting local agent logs…'}**\n\n`);
-    tooltip.appendMarkdown(`Build failures: **${daily.buildFailures.total}${topFailure ? ` · Top: ${formatFailureCategory(topFailure[0])} ${topFailure[1]}` : ''}**\n\n`);
-    tooltip.appendMarkdown(`Token estimate: **${tokenEstimates.join(' · ') || 'Detecting agent logs · est. unavailable'}**\n\n`);
-  }
-
-  tooltip.appendMarkdown('[Open Panel](command:sprintly.openPanel) · [Settings](command:workbench.action.openSettings?%5B%22sprintly%22%5D)');
+  tooltip.appendMarkdown(`### $(pulse) Sprintly · ${summary.scope}\n\n`);
+  tooltip.appendMarkdown(`**${summary.status}** · \`${summary.duration}\`\n\n`);
+  tooltip.appendMarkdown(`Coding split: **${summary.codingSplit}**\n\n`);
+  tooltip.appendMarkdown(`Agent prompts: **${summary.promptUsage}**\n\n`);
+  tooltip.appendMarkdown(`Token usage: **${summary.tokenUsage}**\n\n`);
+  tooltip.appendMarkdown(`Build failures: **${summary.buildFailures}**\n\n`);
+  tooltip.appendMarkdown(
+    `[Open Quick Panel](command:${SESSION_PANEL_COMMAND}) · `
+    + '[Settings](command:workbench.action.openSettings?%5B%22sprintly%22%5D)',
+  );
   return tooltip;
-}
-
-function formatDailyDuration(milliseconds: number): string {
-  const minutes = Math.floor(milliseconds / 60_000);
-  const hours = Math.floor(minutes / 60);
-  return hours > 0 ? `${hours}h ${minutes % 60}m` : `${minutes}m`;
-}
-
-function formatTokenEstimate(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `~${(tokens / 1_000_000).toFixed(1)}M`;
-  }
-  if (tokens >= 1_000) {
-    return `~${(tokens / 1_000).toFixed(1)}K`;
-  }
-  return `~${Math.round(tokens)}`;
-}
-
-function formatFailureCategory(category: string): string {
-  return category.replace(/_/g, ' ');
 }

@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import { requestSessionStart } from './consentFlow';
-import { showStatusPanel } from './panels/sessionQuickPick';
+import { SESSION_PANEL_COMMAND, showStatusPanel } from './panels/sessionQuickPick';
 import { SessionTracker } from './sessionTracker';
 import { AgentLogWatcher } from './tracking/agentLogWatcher';
 import { DailyStateStore } from './tracking/dailyStateStore';
@@ -19,9 +18,6 @@ export function registerCommands(
   const refresh = (): void => statusBar.update();
 
   const start = async (): Promise<void> => {
-    if (!(await requestSessionStart())) {
-      return;
-    }
     await agentLogWatcher.scanNow();
     sessionStore.startSession();
     tracker.start();
@@ -67,10 +63,8 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.pauseSession', pause),
     vscode.commands.registerCommand('sprintly.resumeSession', resume),
     vscode.commands.registerCommand('sprintly.resetSession', reset),
-    vscode.commands.registerCommand(
-      'sprintly.showStatusPanel',
-      () => showStatusPanel(tracker, sessionStore),
-    ),
+    vscode.commands.registerCommand(SESSION_PANEL_COMMAND, () => showStatusPanel(tracker, sessionStore)),
+    vscode.commands.registerCommand('sprintly.openPanel', () => showStatusPanel(tracker, sessionStore)),
   );
 }
 

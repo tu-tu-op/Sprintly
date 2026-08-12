@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { registerCommands, showStatusPanel } from './commands';
+import { registerCommands } from './commands';
 import { runConsentFlow } from './consentFlow';
 import { SessionTracker } from './sessionTracker';
 import { initStatusBar } from './panels/statusBar';
@@ -39,9 +39,6 @@ export function activate(context: vscode.ExtensionContext): void {
   void agentLogWatcher.start().catch(() => undefined);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('sprintly.openPanel', () => {
-      runPanel(() => showStatusPanel(tracker, dailyStore));
-    }),
     vscode.commands.registerCommand('sprintly.shareSession', () => {
       showInfo('Sprintly session sharing is coming soon.');
     }),

@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.SESSION_PANEL_COMMAND = void 0;
 exports.showStatusPanel = showStatusPanel;
 exports.buildSessionPanelSummary = buildSessionPanelSummary;
 const vscode = require("vscode");
 const pricing_1 = require("../tracking/pricing");
+exports.SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 async function showStatusPanel(tracker, sessionStore) {
     let trackerStats = tracker.get();
     let sessionState = sessionStore.get();

@@ -22,9 +22,7 @@ function activate(context) {
     context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore);
     (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher);
     void agentLogWatcher.start().catch(() => undefined);
-    context.subscriptions.push(vscode.commands.registerCommand('sprintly.openPanel', () => {
-        runPanel(() => (0, commands_1.showStatusPanel)(tracker, dailyStore));
-    }), vscode.commands.registerCommand('sprintly.shareSession', () => {
+    context.subscriptions.push(vscode.commands.registerCommand('sprintly.shareSession', () => {
         showInfo('Sprintly session sharing is coming soon.');
     }), vscode.commands.registerCommand('sprintly.saveSession', () => {
         showInfo('Sprintly session saved to history.');
