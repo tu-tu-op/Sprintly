@@ -23,7 +23,7 @@ export function registerCommands(
     await agentLogWatcher.scanNow();
     dailyStore.startSession();
     tracker.start(); refresh();
-    vscode.window.showInformationMessage('🏃 Sprintly — Session started!');
+    vscode.window.showInformationMessage('Sprintly session started.');
   };
   const pause  = async () => {
     await agentLogWatcher.scanNow();
@@ -43,7 +43,7 @@ export function registerCommands(
     dailyStore.stopSession();
     tracker.stop(); refresh();
     vscode.window.showInformationMessage(
-      `✅ Sprintly — Session ended. ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
+      `Sprintly session ended: ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
   };
   const reset = async () => {
     await agentLogWatcher.scanNow();
@@ -54,7 +54,7 @@ export function registerCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sprintly.startSession',
-      () => runConsentFlow(context, start)),
+      () => runConsentFlow(start)),
     vscode.commands.registerCommand('sprintly.stopSession',      stop),
     vscode.commands.registerCommand('sprintly.pauseSession',     pause),
     vscode.commands.registerCommand('sprintly.resumeSession',    resume),

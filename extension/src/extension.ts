@@ -69,14 +69,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  runConsentFlow(context, () => {
-    void agentLogWatcher.scanNow().then(() => {
-      dailyStore.startSession();
-      tracker.start();
-      statusBar.update();
-      showInfo('Sprintly recording started.');
-    }).catch(() => undefined);
-  });
+  void runConsentFlow(async () => {
+    await agentLogWatcher.scanNow();
+    dailyStore.startSession();
+    tracker.start();
+    statusBar.update();
+    showInfo('Sprintly session started.');
+  }).catch(() => undefined);
 }
 
 export function deactivate(): void {}

@@ -1,14 +1,47 @@
 import * as vscode from 'vscode';
 
-export async function runConsentFlow(
-  context: vscode.ExtensionContext,
-  onAccept: () => void
-): Promise<void> {
-  const choice = await vscode.window.showInformationMessage(
-    '🏃 Sprintly — Want to record this coding session?',
-    { modal: false },
-    'Start Recording',
-    'Not now',
+export const START_SPRINT_LABEL = '$(play) Start Sprint';
+
+interface SessionStartChoice extends vscode.QuickPickItem {
+  action: 'start' | 'dismiss';
+}
+
+export async function requestSessionStart(): Promise<boolean> {
+  const choice = await vscode.window.showQuickPick<SessionStartChoice>(
+    [
+      {
+        label: 'Session tracking',
+        kind: vscode.QuickPickItemKind.Separator,
+        action: 'dismiss',
+      },
+      {
+        label: START_SPRINT_LABEL,
+        description: 'Track this coding session',
+        detail: 'Counts activity, agent usage, tokens, and build failures. Source code and command text stay private.',
+        action: 'start',
+        alwaysShow: true,
+      },
+      {
+        label: '$(close) Not Now',
+        description: 'Keep Sprintly idle',
+        action: 'dismiss',
+        alwaysShow: true,
+      },
+    ],
+    {
+      title: 'Sprintly',
+      placeHolder: 'Choose how to begin',
+      matchOnDescription: false,
+      matchOnDetail: false,
+      ignoreFocusOut: false,
+    },
   );
-  if (choice === 'Start Recording') onAccept();
+
+  return choice?.action === 'start';
+}
+
+export async function runConsentFlow(onAccept: () => void | Promise<void>): Promise<void> {
+  if (await requestSessionStart()) {
+    await onAccept();
+  }
 }

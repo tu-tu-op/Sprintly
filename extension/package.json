@@ -31,7 +31,7 @@
         "sprintly.autoPromptOnStartup": {
           "type": "boolean",
           "default": true,
-          "description": "Show recording prompt when VS Code opens."
+          "description": "Ask whether to start a Sprintly session when VS Code opens."
         },
         "sprintly.pricing.claudeCode.input": {
           "type": "number",

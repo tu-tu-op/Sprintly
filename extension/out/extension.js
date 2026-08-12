@@ -49,14 +49,13 @@ function activate(context) {
             runPanel(() => (0, sprintlyPanels_1.showSessionEndPanel)(context, (0, sprintlyPanels_1.demoSessionResult)()));
         }
     }));
-    (0, consentFlow_1.runConsentFlow)(context, () => {
-        void agentLogWatcher.scanNow().then(() => {
-            dailyStore.startSession();
-            tracker.start();
-            statusBar.update();
-            showInfo('Sprintly recording started.');
-        }).catch(() => undefined);
-    });
+    void (0, consentFlow_1.runConsentFlow)(async () => {
+        await agentLogWatcher.scanNow();
+        dailyStore.startSession();
+        tracker.start();
+        statusBar.update();
+        showInfo('Sprintly session started.');
+    }).catch(() => undefined);
 }
 function deactivate() { }
 async function pickDevScreen() {

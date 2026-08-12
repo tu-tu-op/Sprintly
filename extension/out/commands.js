@@ -13,7 +13,7 @@ function registerCommands(context, tracker, statusBar, dailyStore, agentLogWatch
         dailyStore.startSession();
         tracker.start();
         refresh();
-        vscode.window.showInformationMessage('🏃 Sprintly — Session started!');
+        vscode.window.showInformationMessage('Sprintly session started.');
     };
     const pause = async () => {
         await agentLogWatcher.scanNow();
@@ -33,7 +33,7 @@ function registerCommands(context, tracker, statusBar, dailyStore, agentLogWatch
         dailyStore.stopSession();
         tracker.stop();
         refresh();
-        vscode.window.showInformationMessage(`✅ Sprintly — Session ended. ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
+        vscode.window.showInformationMessage(`Sprintly session ended: ${s.fileEdits} edits · ${Math.floor(s.durationSeconds / 60)}m`);
     };
     const reset = async () => {
         await agentLogWatcher.scanNow();
@@ -41,7 +41,7 @@ function registerCommands(context, tracker, statusBar, dailyStore, agentLogWatch
         tracker.reset();
         refresh();
     };
-    context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', () => (0, consentFlow_1.runConsentFlow)(context, start)), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.showStatusPanel', () => showStatusPanel(tracker, dailyStore)));
+    context.subscriptions.push(vscode.commands.registerCommand('sprintly.startSession', () => (0, consentFlow_1.runConsentFlow)(start)), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.showStatusPanel', () => showStatusPanel(tracker, dailyStore)));
 }
 async function showStatusPanel(tracker, dailyStore) {
     const s = tracker.get();
