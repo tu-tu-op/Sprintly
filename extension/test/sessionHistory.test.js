@@ -91,6 +91,7 @@ test('aggregation calculates period totals, recovery, records, and streaks from 
     record('2026-08-08'),
   ];
   const week = aggregateSessions(records, 'week', now);
+  assert.equal(week.averageFocusScore, 80);
   assert.equal(week.sessions, 2);
   assert.equal(week.aiPrompts, 6);
   assert.equal(week.failures, 2);

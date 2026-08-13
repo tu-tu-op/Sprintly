@@ -7,6 +7,9 @@ export interface SessionAggregation {
   sessions: number;
   codingTimeMs: number;
   averageSessionMs: number;
+  averageFocusScore: number;
+  averageShippingActivity: number;
+  averageTestingDiscipline: number;
   aiPrompts: number;
   aiBalance: number;
   failures: number;
@@ -46,12 +49,18 @@ export function aggregateSessions(
     + record.agentPrompts.githubCopilot, 0);
   const recoveryRate = failures === 0 ? 100 : percentage(recoveredFailures, failures);
   const streak = calculateLongestStreak(records, now);
+  const averageMetric = (selector: (record: SessionHistoryRecord) => number): number => filtered.length
+    ? Math.round(filtered.reduce((total, record) => total + selector(record), 0) / filtered.length)
+    : 0;
 
   return {
     period,
     sessions: filtered.length,
     codingTimeMs,
     averageSessionMs: filtered.length ? codingTimeMs / filtered.length : 0,
+    averageFocusScore: averageMetric((record) => record.metrics.focusScore),
+    averageShippingActivity: averageMetric((record) => record.metrics.shippingActivity),
+    averageTestingDiscipline: averageMetric((record) => record.metrics.testingDiscipline),
     aiPrompts: promptTotal,
     aiBalance: percentage(aiTime, Math.max(1, codingTimeMs)),
     failures,
