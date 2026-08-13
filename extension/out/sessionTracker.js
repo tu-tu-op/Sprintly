@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionTracker = void 0;
 const vscode = require("vscode");
 const terminalCommands_1 = require("./tracking/terminalCommands");
+const developerMetrics_1 = require("./tracking/developerMetrics");
 class SessionTracker {
     constructor() {
         this.stats = this.blank();
@@ -69,18 +70,19 @@ class SessionTracker {
     archetype() {
         const s = this.stats;
         if (s.durationSeconds < 30)
-            return 'Just warming up';
-        const epm = (s.fileEdits / Math.max(s.durationSeconds, 1)) * 60;
-        const tpi = s.terminalCommands / Math.max(s.durationSeconds / 60, 1);
-        if (tpi > 5)
-            return 'Terminal Warrior';
-        if (epm > 20)
-            return 'Vibe Coder';
-        if (s.fileSaves > s.fileEdits * 0.8)
-            return 'Precision Coder';
-        if (s.linesChanged > 200)
-            return 'Hardcore Sprint';
-        return 'Steady Builder';
+            return 'Steady Builder';
+        return (0, developerMetrics_1.deriveDeveloperProfile)({
+            sessionDurationMs: s.durationSeconds * 1000,
+            coding: { manualMs: 0, aiAssistedMs: 0, automationMs: 0, unknownBulkMs: 0 },
+            fileEdits: s.fileEdits,
+            fileSaves: s.fileSaves,
+            fileSwitches: s.fileSwitches,
+            terminalCommands: s.terminalCommands,
+            terminalCommandsByCategory: s.terminalCommandsByCategory,
+            failures: 0,
+            recoveredFailures: 0,
+            successfulRuns: 0,
+        }).primary;
     }
     _emit() { this.onDidUpdate.fire(this.get()); }
     _startTick() {

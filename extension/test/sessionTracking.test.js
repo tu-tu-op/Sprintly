@@ -111,11 +111,13 @@ test('activity duration does not bridge pause or stopped periods', () => {
   }
 });
 
-test('short Copilot-style inline edits count as vibecode', () => {
-  assert.equal(classifyChange('a', 0), 'hardcode');
-  assert.equal(classifyChange('\n', 0), 'hardcode');
-  assert.equal(classifyChange('value', 0), 'vibecode');
-  assert.equal(classifyChange('x', 4), 'vibecode');
+test('document changes distinguish manual typing from unattributed bulk edits', () => {
+  assert.equal(classifyChange('a', 0), 'manual');
+  assert.equal(classifyChange('\n', 0), 'manual');
+  assert.equal(classifyChange('value', 0), 'unknown-bulk');
+  assert.equal(classifyChange('x', 4), 'unknown-bulk');
+  assert.equal(classifyChange('generated', 0, 'ai-assisted'), 'ai-assisted');
+  assert.equal(classifyChange('formatted', 0, 'automation'), 'automation');
 });
 
 test('accepted inline completion increments the session vibe duration', () => {
@@ -136,7 +138,7 @@ test('accepted inline completion increments the session vibe duration', () => {
     now = 3_350;
     saveDocument.fire(activeDocument);
 
-    assert.equal(store.get().session.vibecodeMs, 250);
+    assert.equal(store.get().session.unknownBulkMs, 250);
     assert.equal(store.get().session.hardcodeMs, 0);
     tracker.dispose();
   } finally {

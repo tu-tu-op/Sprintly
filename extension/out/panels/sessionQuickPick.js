@@ -5,6 +5,7 @@ exports.showStatusPanel = showStatusPanel;
 exports.buildSessionPanelSummary = buildSessionPanelSummary;
 const vscode = require("vscode");
 const pricing_1 = require("../tracking/pricing");
+const developerMetrics_1 = require("../tracking/developerMetrics");
 exports.SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 async function showStatusPanel(tracker, sessionStore) {
     let trackerStats = tracker.get();
@@ -76,11 +77,15 @@ function buildSessionPanelSummary(trackerStats, state) {
     const durationMs = trackerStats.startedAt
         ? trackerStats.durationSeconds * 1000
         : calculateStoredDuration(state);
+    const profile = (0, developerMetrics_1.deriveDeveloperProfile)(buildMetricInput(trackerStats, state, durationMs));
+    const metrics = (0, developerMetrics_1.calculateDeveloperMetrics)(buildMetricInput(trackerStats, state, durationMs));
     return {
         scope,
         status,
         duration: formatClock(durationMs),
-        codingSplit: `Hard ${formatCompactDuration(state.session.hardcodeMs)} · Vibe ${formatCompactDuration(state.session.vibecodeMs)}`,
+        codingSplit: describeCodingSplit(state),
+        archetype: profile.primary,
+        metricSummary: `Focus ${metrics.focusScore} · Switches ${metrics.contextSwitches} · Tests ${metrics.testingDiscipline}% · AI ${metrics.aiBalance}%`,
         promptUsage: describeAgentPrompts(state),
         tokenUsage: describeTokenUsage(state),
         buildFailures: describeFailures(state),
@@ -92,12 +97,12 @@ function buildPanelItems(tracker, trackerStats, state, summary) {
         item(statusIcon(summary.status), summary.status, summary.duration, state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
     ];
     if (state.session.id) {
-        items.push(item('code', 'Coding style', summary.codingSplit, tracker.archetype()));
+        items.push(item('code', 'Coding style', summary.codingSplit, `${summary.archetype} · ${summary.metricSummary}`));
     }
     if (trackerStats.startedAt) {
         items.push(separator('ACTIVITY'), item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`), item('files', 'Files touched', String(trackerStats.activeFiles.size), describeTerminalActivity(trackerStats)));
     }
-    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Build failures', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
+    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Build failures', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), item('pulse', 'Developer signals', summary.metricSummary, 'Explainable estimates from this session'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
     return items;
 }
 function buildControlItems(trackerStats, state) {
@@ -120,9 +125,12 @@ async function showMetricDetail(metric, state) {
     const title = `Sprintly · ${state.session.isActive ? 'Current session' : 'Last session'}`;
     let items;
     if (metric === 'coding') {
+        const coding = getCodingTotals(state);
         items = [
-            item('code', 'Hardcode', formatCompactDuration(state.session.hardcodeMs)),
-            item('sparkle', 'Vibecode', formatCompactDuration(state.session.vibecodeMs)),
+            item('edit', 'Manual', formatCompactDuration(coding.manualMs)),
+            item('copilot', 'AI-assisted', formatCompactDuration(coding.aiAssistedMs)),
+            item('wand', 'Automation', formatCompactDuration(coding.automationMs)),
+            item('question', 'Unattributed bulk', formatCompactDuration(coding.unknownBulkMs)),
         ];
     }
     else if (metric === 'prompts') {
@@ -253,6 +261,37 @@ function describeFailures(state) {
         ? ` · ${state.buildFailures.failureStreak} failure streak`
         : '';
     return `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
+}
+function describeCodingSplit(state) {
+    const coding = getCodingTotals(state);
+    return [
+        `Manual ${formatCompactDuration(coding.manualMs)}`,
+        `AI-assisted ${formatCompactDuration(coding.aiAssistedMs)}`,
+        `Automation ${formatCompactDuration(coding.automationMs)}`,
+        `Unattributed ${formatCompactDuration(coding.unknownBulkMs)}`,
+    ].join(' · ');
+}
+function getCodingTotals(state) {
+    return {
+        manualMs: state.session.manualMs ?? state.session.hardcodeMs ?? 0,
+        aiAssistedMs: state.session.aiAssistedMs ?? state.session.vibecodeMs ?? 0,
+        automationMs: state.session.automationMs ?? 0,
+        unknownBulkMs: state.session.unknownBulkMs ?? 0,
+    };
+}
+function buildMetricInput(trackerStats, state, durationMs) {
+    return {
+        sessionDurationMs: durationMs,
+        coding: getCodingTotals(state),
+        fileEdits: trackerStats.fileEdits,
+        fileSaves: trackerStats.fileSaves,
+        fileSwitches: trackerStats.fileSwitches,
+        terminalCommands: trackerStats.terminalCommands ?? 0,
+        terminalCommandsByCategory: trackerStats.terminalCommandsByCategory,
+        failures: state.buildFailures.total,
+        recoveredFailures: state.buildFailures.recoveredFailures ?? 0,
+        successfulRuns: state.buildFailures.successfulRuns ?? 0,
+    };
 }
 function describeTerminalActivity(stats) {
     const opens = stats.terminalOpens ?? 0;

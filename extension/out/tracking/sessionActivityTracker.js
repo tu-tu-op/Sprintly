@@ -66,7 +66,7 @@ class SessionActivityTracker {
         const previous = this.lastHeartbeats.get(uri);
         // ASSUMPTION: a save or first activation without a classified edit is hardcode,
         // because the required heartbeat must carry one of the two duration categories.
-        const category = this.lastEditCategories.get(uri) ?? previous?.category ?? 'hardcode';
+        const category = this.lastEditCategories.get(uri) ?? previous?.category ?? 'manual';
         this.forceNextHeartbeat.delete(uri);
         this.commitHeartbeat({ uri, time: now, category });
     }
@@ -97,11 +97,14 @@ class SessionActivityTracker {
     }
 }
 exports.SessionActivityTracker = SessionActivityTracker;
-function classifyChange(text, replacedLength = 0) {
+function classifyChange(text, replacedLength = 0, knownAttribution) {
+    if (knownAttribution) {
+        return knownAttribution;
+    }
     // VS Code does not expose which completion provider authored a document change.
-    // Normal typing arrives one character at a time, while accepted inline fixes,
-    // completions, and pasted edits arrive as multi-character inserts or replacements.
-    return text.length > 1 || replacedLength > 0 ? 'vibecode' : 'hardcode';
+    // Normal typing is observable; bulk inserts/replacements are intentionally kept
+    // unattributed instead of being presented as factually AI-generated.
+    return text.length > 1 || replacedLength > 0 ? 'unknown-bulk' : 'manual';
 }
 function getLifecycleKey(store) {
     const session = store.get().session;

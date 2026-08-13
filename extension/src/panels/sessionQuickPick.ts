@@ -2,6 +2,11 @@ import * as vscode from 'vscode';
 import { SessionStats, SessionTracker } from '../sessionTracker';
 import { DailySprintlyState, DailyStateStore } from '../tracking/dailyStateStore';
 import { estimateClaudeCost } from '../tracking/pricing';
+import {
+  calculateDeveloperMetrics,
+  deriveDeveloperProfile,
+  DeveloperMetricInput,
+} from '../tracking/developerMetrics';
 
 export const SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 
@@ -18,6 +23,8 @@ export interface SessionPanelSummary {
   status: 'In progress' | 'Paused' | 'Completed' | 'Ready';
   duration: string;
   codingSplit: string;
+  archetype: string;
+  metricSummary: string;
   promptUsage: string;
   tokenUsage: string;
   buildFailures: string;
@@ -108,11 +115,15 @@ export function buildSessionPanelSummary(
     ? trackerStats.durationSeconds * 1_000
     : calculateStoredDuration(state);
 
+  const profile = deriveDeveloperProfile(buildMetricInput(trackerStats, state, durationMs));
+  const metrics = calculateDeveloperMetrics(buildMetricInput(trackerStats, state, durationMs));
   return {
     scope,
     status,
     duration: formatClock(durationMs),
-    codingSplit: `Hard ${formatCompactDuration(state.session.hardcodeMs)} · Vibe ${formatCompactDuration(state.session.vibecodeMs)}`,
+    codingSplit: describeCodingSplit(state),
+    archetype: profile.primary,
+    metricSummary: `Focus ${metrics.focusScore} · Switches ${metrics.contextSwitches} · Tests ${metrics.testingDiscipline}% · AI ${metrics.aiBalance}%`,
     promptUsage: describeAgentPrompts(state),
     tokenUsage: describeTokenUsage(state),
     buildFailures: describeFailures(state),
@@ -133,7 +144,7 @@ function buildPanelItems(
 
   if (state.session.id) {
     items.push(
-      item('code', 'Coding style', summary.codingSplit, tracker.archetype()),
+      item('code', 'Coding style', summary.codingSplit, `${summary.archetype} · ${summary.metricSummary}`),
     );
   }
 
@@ -157,6 +168,7 @@ function buildPanelItems(
     separator('RELIABILITY'),
     metricItem('error', 'Build failures', summary.buildFailures, 'failures'),
     metricItem('code', 'Coding split details', summary.codingSplit, 'coding'),
+    item('pulse', 'Developer signals', summary.metricSummary, 'Explainable estimates from this session'),
     separator('CONTROLS'),
     ...buildControlItems(trackerStats, state),
   );
@@ -193,9 +205,12 @@ async function showMetricDetail(
   let items: vscode.QuickPickItem[];
 
   if (metric === 'coding') {
+    const coding = getCodingTotals(state);
     items = [
-      item('code', 'Hardcode', formatCompactDuration(state.session.hardcodeMs)),
-      item('sparkle', 'Vibecode', formatCompactDuration(state.session.vibecodeMs)),
+      item('edit', 'Manual', formatCompactDuration(coding.manualMs)),
+      item('copilot', 'AI-assisted', formatCompactDuration(coding.aiAssistedMs)),
+      item('wand', 'Automation', formatCompactDuration(coding.automationMs)),
+      item('question', 'Unattributed bulk', formatCompactDuration(coding.unknownBulkMs)),
     ];
   } else if (metric === 'prompts') {
     items = [
@@ -355,6 +370,49 @@ function describeFailures(state: Readonly<DailySprintlyState>): string {
     ? ` · ${state.buildFailures.failureStreak} failure streak`
     : '';
   return `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
+}
+
+function describeCodingSplit(state: Readonly<DailySprintlyState>): string {
+  const coding = getCodingTotals(state);
+  return [
+    `Manual ${formatCompactDuration(coding.manualMs)}`,
+    `AI-assisted ${formatCompactDuration(coding.aiAssistedMs)}`,
+    `Automation ${formatCompactDuration(coding.automationMs)}`,
+    `Unattributed ${formatCompactDuration(coding.unknownBulkMs)}`,
+  ].join(' · ');
+}
+
+function getCodingTotals(state: Readonly<DailySprintlyState>): {
+  manualMs: number;
+  aiAssistedMs: number;
+  automationMs: number;
+  unknownBulkMs: number;
+} {
+  return {
+    manualMs: state.session.manualMs ?? state.session.hardcodeMs ?? 0,
+    aiAssistedMs: state.session.aiAssistedMs ?? state.session.vibecodeMs ?? 0,
+    automationMs: state.session.automationMs ?? 0,
+    unknownBulkMs: state.session.unknownBulkMs ?? 0,
+  };
+}
+
+function buildMetricInput(
+  trackerStats: Readonly<SessionStats>,
+  state: Readonly<DailySprintlyState>,
+  durationMs: number,
+): DeveloperMetricInput {
+  return {
+    sessionDurationMs: durationMs,
+    coding: getCodingTotals(state),
+    fileEdits: trackerStats.fileEdits,
+    fileSaves: trackerStats.fileSaves,
+    fileSwitches: trackerStats.fileSwitches,
+    terminalCommands: trackerStats.terminalCommands ?? 0,
+    terminalCommandsByCategory: trackerStats.terminalCommandsByCategory,
+    failures: state.buildFailures.total,
+    recoveredFailures: state.buildFailures.recoveredFailures ?? 0,
+    successfulRuns: state.buildFailures.successfulRuns ?? 0,
+  };
 }
 
 function describeTerminalActivity(stats: Readonly<SessionStats>): string {

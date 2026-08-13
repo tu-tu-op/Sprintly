@@ -86,9 +86,25 @@ class DailyStateStore {
         this.mutate((state) => {
             if (category === 'hardcode') {
                 state.session.hardcodeMs += durationMs;
+                state.session.manualMs += durationMs;
+            }
+            else if (category === 'vibecode') {
+                state.session.vibecodeMs += durationMs;
+                state.session.aiAssistedMs += durationMs;
+            }
+            else if (category === 'manual') {
+                state.session.hardcodeMs += durationMs;
+                state.session.manualMs += durationMs;
+            }
+            else if (category === 'ai-assisted') {
+                state.session.vibecodeMs += durationMs;
+                state.session.aiAssistedMs += durationMs;
+            }
+            else if (category === 'automation') {
+                state.session.automationMs += durationMs;
             }
             else {
-                state.session.vibecodeMs += durationMs;
+                state.session.unknownBulkMs += durationMs;
             }
         });
     }
@@ -218,6 +234,10 @@ function emptySession() {
         pauses: [],
         hardcodeMs: 0,
         vibecodeMs: 0,
+        manualMs: 0,
+        aiAssistedMs: 0,
+        automationMs: 0,
+        unknownBulkMs: 0,
     };
 }
 function emptyClaudeTokens() {
@@ -251,8 +271,12 @@ function parseStoredState(value) {
             isPaused: session.isPaused === true,
             pausedAt: nullableTimestamp(session.pausedAt),
             pauses: parsePauses(session.pauses),
-            hardcodeMs: safeNumber(session.hardcodeMs),
-            vibecodeMs: safeNumber(session.vibecodeMs),
+            hardcodeMs: safeNumber(session.hardcodeMs) || safeNumber(session.manualMs),
+            vibecodeMs: safeNumber(session.vibecodeMs) || safeNumber(session.aiAssistedMs),
+            manualMs: safeNumber(session.manualMs) || safeNumber(session.hardcodeMs),
+            aiAssistedMs: safeNumber(session.aiAssistedMs) || safeNumber(session.vibecodeMs),
+            automationMs: safeNumber(session.automationMs),
+            unknownBulkMs: safeNumber(session.unknownBulkMs),
         },
         agentPrompts: {
             claudeCode: safeNumber(prompts.claudeCode),
@@ -349,6 +373,10 @@ function cloneState(state) {
         detectedAgents: [...state.detectedAgents],
         session: {
             ...state.session,
+            manualMs: state.session.manualMs,
+            aiAssistedMs: state.session.aiAssistedMs,
+            automationMs: state.session.automationMs,
+            unknownBulkMs: state.session.unknownBulkMs,
             pauses: state.session.pauses.map((pause) => ({ ...pause })),
         },
         agentPrompts: { ...state.agentPrompts },
