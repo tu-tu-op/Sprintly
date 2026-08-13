@@ -7,6 +7,7 @@ import { AgentLogWatcher } from './tracking/agentLogWatcher';
 import { BuildFailureTracker } from './tracking/buildFailureTracker';
 import { DailyStateStore } from './tracking/dailyStateStore';
 import { SessionActivityTracker } from './tracking/sessionActivityTracker';
+import { SessionHistoryStore } from './tracking/sessionHistory';
 import {
   demoLeaderboardData,
   demoHistoryData,
@@ -23,6 +24,7 @@ import {
 export function activate(context: vscode.ExtensionContext): void {
   const tracker = new SessionTracker();
   const dailyStore = new DailyStateStore(context.globalState);
+  const historyStore = new SessionHistoryStore(context.globalState);
   const sessionActivityTracker = new SessionActivityTracker(dailyStore);
   const workspacePaths = (vscode.workspace.workspaceFolders ?? [])
     .filter((folder) => folder.uri.scheme === 'file')
@@ -37,8 +39,9 @@ export function activate(context: vscode.ExtensionContext): void {
     agentLogWatcher,
     buildFailureTracker,
     dailyStore,
+    historyStore,
   );
-  registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher);
+  registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore);
   if (isSprintlyEnabled()) {
     void agentLogWatcher.start().catch(() => undefined);
   }

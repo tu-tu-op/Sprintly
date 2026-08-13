@@ -14,6 +14,7 @@
       { "command": "sprintly.pauseSession",    "title": "Sprintly: Pause Session" },
       { "command": "sprintly.resumeSession",   "title": "Sprintly: Resume Session" },
       { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
+      { "command": "sprintly.clearHistory",    "title": "Sprintly: Clear Session History" },
       { "command": "sprintly.showStatusPanel", "title": "Open Quick Panel",       "category": "Sprintly" },
       { "command": "sprintly.openPanel",       "title": "Open Quick Panel",       "category": "Sprintly" },
       { "command": "sprintly.shareSession",    "title": "Share Session",          "category": "Sprintly" },
@@ -32,6 +33,13 @@
           "type": "boolean",
           "default": true,
           "description": "Ask whether to start a Sprintly session when VS Code opens."
+        },
+        "sprintly.historyRetention": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum number of aggregate session records kept locally."
         },
         "sprintly.pricing.claudeCode.input": {
           "type": "number",

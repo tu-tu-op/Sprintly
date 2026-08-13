@@ -11,10 +11,12 @@ const agentLogWatcher_1 = require("./tracking/agentLogWatcher");
 const buildFailureTracker_1 = require("./tracking/buildFailureTracker");
 const dailyStateStore_1 = require("./tracking/dailyStateStore");
 const sessionActivityTracker_1 = require("./tracking/sessionActivityTracker");
+const sessionHistory_1 = require("./tracking/sessionHistory");
 const sprintlyPanels_1 = require("./panels/sprintlyPanels");
 function activate(context) {
     const tracker = new sessionTracker_1.SessionTracker();
     const dailyStore = new dailyStateStore_1.DailyStateStore(context.globalState);
+    const historyStore = new sessionHistory_1.SessionHistoryStore(context.globalState);
     const sessionActivityTracker = new sessionActivityTracker_1.SessionActivityTracker(dailyStore);
     const workspacePaths = (vscode.workspace.workspaceFolders ?? [])
         .filter((folder) => folder.uri.scheme === 'file')
@@ -22,8 +24,8 @@ function activate(context) {
     const agentLogWatcher = new agentLogWatcher_1.AgentLogWatcher(dailyStore, undefined, workspacePaths);
     const buildFailureTracker = new buildFailureTracker_1.BuildFailureTracker(dailyStore);
     const statusBar = (0, statusBar_1.initStatusBar)(context, tracker, dailyStore);
-    context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore);
-    (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher);
+    context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore, historyStore);
+    (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore);
     if ((0, consentFlow_1.isSprintlyEnabled)()) {
         void agentLogWatcher.start().catch(() => undefined);
     }

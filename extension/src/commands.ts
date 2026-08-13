@@ -4,6 +4,11 @@ import { SessionTracker } from './sessionTracker';
 import { AgentLogWatcher } from './tracking/agentLogWatcher';
 import { DailyStateStore } from './tracking/dailyStateStore';
 import { isSprintlyEnabled } from './consentFlow';
+import {
+  buildSessionHistoryRecord,
+  SessionHistoryStore,
+} from './tracking/sessionHistory';
+import { calculateDeveloperMetrics, deriveDeveloperProfile } from './tracking/developerMetrics';
 
 interface StatusBarUpdater {
   update(): void;
@@ -15,6 +20,7 @@ export function registerCommands(
   statusBar: StatusBarUpdater,
   sessionStore: DailyStateStore,
   agentLogWatcher: AgentLogWatcher,
+  historyStore: SessionHistoryStore,
 ): void {
   const refresh = (): void => statusBar.update();
 
@@ -48,6 +54,36 @@ export function registerCommands(
     const stats = tracker.get();
     await agentLogWatcher.scanNow();
     sessionStore.stopSession();
+    const finalState = sessionStore.get();
+    const metricsInput = {
+      sessionDurationMs: stats.durationSeconds * 1000,
+      coding: {
+        manualMs: finalState.session.manualMs,
+        aiAssistedMs: finalState.session.aiAssistedMs,
+        automationMs: finalState.session.automationMs,
+        unknownBulkMs: finalState.session.unknownBulkMs,
+      },
+      fileEdits: stats.fileEdits,
+      fileSaves: stats.fileSaves,
+      fileSwitches: stats.fileSwitches,
+      terminalCommands: stats.terminalCommands,
+      terminalCommandsByCategory: stats.terminalCommandsByCategory,
+      failures: finalState.buildFailures.total,
+      recoveredFailures: finalState.buildFailures.recoveredFailures,
+      successfulRuns: finalState.buildFailures.successfulRuns,
+    };
+    const profile = deriveDeveloperProfile(metricsInput);
+    const historyRecord = buildSessionHistoryRecord(
+      finalState,
+      stats,
+      profile.primary,
+      profile.traits,
+      calculateDeveloperMetrics(metricsInput),
+      finalState.session.endedAt ?? Date.now(),
+    );
+    if (historyRecord) {
+      historyStore.append(historyRecord);
+    }
     tracker.stop();
     refresh();
     void vscode.window.showInformationMessage(
@@ -68,6 +104,10 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.pauseSession', pause),
     vscode.commands.registerCommand('sprintly.resumeSession', resume),
     vscode.commands.registerCommand('sprintly.resetSession', reset),
+    vscode.commands.registerCommand('sprintly.clearHistory', () => {
+      historyStore.clear();
+      void vscode.window.showInformationMessage('Sprintly session history cleared.');
+    }),
     vscode.commands.registerCommand(SESSION_PANEL_COMMAND, () => showStatusPanel(tracker, sessionStore)),
     vscode.commands.registerCommand('sprintly.openPanel', () => showStatusPanel(tracker, sessionStore)),
   );
