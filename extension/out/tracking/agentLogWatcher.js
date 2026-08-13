@@ -6,6 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const vscode = require("vscode");
 const agentLogSources_1 = require("./agentLogSources");
+const privacySettings_1 = require("./privacySettings");
 const POLL_INTERVAL_MS = 5000;
 class AgentLogWatcher {
     constructor(store, sources = agentLogSources_1.AGENT_LOG_SOURCES, workspacePaths = getOpenWorkspacePaths()) {
@@ -198,6 +199,9 @@ class AgentLogWatcher {
         }
     }
     processParsedLine(source, parsed, batch, fileWorkspace) {
+        if (!(0, privacySettings_1.isTelemetryCategoryEnabled)('agentUsage')) {
+            return;
+        }
         this.updateFileWorkspace(source, parsed, fileWorkspace);
         if (!fileWorkspace.matches) {
             return;

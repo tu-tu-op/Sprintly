@@ -7,6 +7,7 @@ import {
   deriveDeveloperProfile,
   DeveloperMetricInput,
 } from '../tracking/developerMetrics';
+import { getPrivacySettings } from '../tracking/privacySettings';
 
 export const SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 
@@ -117,6 +118,7 @@ export function buildSessionPanelSummary(
 
   const profile = deriveDeveloperProfile(buildMetricInput(trackerStats, state, durationMs));
   const metrics = calculateDeveloperMetrics(buildMetricInput(trackerStats, state, durationMs));
+  const privacy = getPrivacySettings();
   return {
     scope,
     status,
@@ -124,8 +126,8 @@ export function buildSessionPanelSummary(
     codingSplit: describeCodingSplit(state),
     archetype: profile.primary,
     metricSummary: `Focus ${metrics.focusScore} · Switches ${metrics.contextSwitches} · Tests ${metrics.testingDiscipline}% · AI ${metrics.aiBalance}%`,
-    promptUsage: describeAgentPrompts(state),
-    tokenUsage: describeTokenUsage(state),
+    promptUsage: privacy.aiTrackingVisible ? describeAgentPrompts(state) : 'Hidden by privacy setting',
+    tokenUsage: privacy.aiTrackingVisible ? describeTokenUsage(state) : 'Hidden by privacy setting',
     buildFailures: describeFailures(state),
   };
 }
@@ -213,11 +215,15 @@ async function showMetricDetail(
       item('question', 'Unattributed bulk', formatCompactDuration(coding.unknownBulkMs)),
     ];
   } else if (metric === 'prompts') {
-    items = [
-      item('copilot', 'Claude Code', String(state.agentPrompts.claudeCode)),
-      item('terminal', 'Codex', String(state.agentPrompts.codex)),
-      item('github', 'GitHub Copilot', String(state.agentPrompts.githubCopilot)),
-    ];
+    if (!getPrivacySettings().aiTrackingVisible) {
+      items = [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
+    } else {
+      items = [
+        item('copilot', 'Claude Code', String(state.agentPrompts.claudeCode)),
+        item('terminal', 'Codex', String(state.agentPrompts.codex)),
+        item('github', 'GitHub Copilot', String(state.agentPrompts.githubCopilot)),
+      ];
+    }
   } else if (metric === 'failures') {
     const categories = Object.entries(state.buildFailures.byCategory)
       .sort((left, right) => right[1] - left[1]);
@@ -225,7 +231,9 @@ async function showMetricDetail(
       ? categories.map(([category, count]) => item('error', formatCategory(category), String(count)))
       : [item('pass', 'No build failures', '0')];
   } else {
-    items = buildTokenDetailItems(state);
+    items = getPrivacySettings().aiTrackingVisible
+      ? buildTokenDetailItems(state)
+      : [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
   }
 
   await vscode.window.showQuickPick(items, {

@@ -3,6 +3,7 @@ import { DailySprintlyState, SessionPauseInterval } from './dailyStateStore';
 import { DeveloperMetrics } from './developerMetrics';
 import { SessionStats } from '../sessionTracker';
 import { TerminalCommandCounts } from './terminalCommands';
+import { SprintlyPrivacySettings, getPrivacySettings } from './privacySettings';
 
 export interface SessionHistoryRecord {
   version: 1;
@@ -62,6 +63,10 @@ export class SessionHistoryStore implements vscode.Disposable {
     this.persist();
   }
 
+  exportAggregatePayload(): AggregateSyncPayload {
+    return createAggregateSyncPayload(this.records, getPrivacySettings());
+  }
+
   dispose(): void {}
 
   private persist(): void {
@@ -70,6 +75,26 @@ export class SessionHistoryStore implements vscode.Disposable {
       .then(() => this.globalState.update(HISTORY_KEY, snapshot))
       .then(() => undefined, () => undefined);
   }
+}
+
+export interface AggregateSyncPayload {
+  schemaVersion: 1;
+  generatedAt: number;
+  cloudSyncEnabled: boolean;
+  sessions: SessionHistoryRecord[];
+}
+
+export function createAggregateSyncPayload(
+  records: readonly SessionHistoryRecord[],
+  settings: Pick<SprintlyPrivacySettings, 'cloudSyncEnabled'>,
+  generatedAt = Date.now(),
+): AggregateSyncPayload {
+  return {
+    schemaVersion: 1,
+    generatedAt,
+    cloudSyncEnabled: settings.cloudSyncEnabled,
+    sessions: records.map(cloneRecord),
+  };
 }
 
 export function buildSessionHistoryRecord(
@@ -261,7 +286,10 @@ function parseNumberRecord(value: unknown): Record<string, number> {
 }
 
 function readRetention(): number {
-  const value = vscode.workspace?.getConfiguration?.('sprintly').get<unknown>('historyRetention', DEFAULT_RETENTION);
+  const configuration = vscode.workspace?.getConfiguration
+    ? vscode.workspace.getConfiguration('sprintly')
+    : undefined;
+  const value = configuration?.get<unknown>('historyRetention', DEFAULT_RETENTION);
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : DEFAULT_RETENTION;
 }
 

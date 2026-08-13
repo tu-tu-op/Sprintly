@@ -41,6 +41,31 @@
           "default": 100,
           "description": "Maximum number of aggregate session records kept locally."
         },
+        "sprintly.cloudSyncEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow aggregate session data to be prepared for future cloud synchronization. Sprintly does not transmit data yet."
+        },
+        "sprintly.telemetry.trackCodingActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local coding activity counters and coding-style duration."
+        },
+        "sprintly.telemetry.trackAgentUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local AI-agent prompt and token aggregates."
+        },
+        "sprintly.telemetry.trackBuildFailures": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local aggregate terminal failure and recovery metrics."
+        },
+        "sprintly.telemetry.showAiTracking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show AI-assisted metrics in the Sprintly Quick Panel."
+        },
         "sprintly.pricing.claudeCode.input": {
           "type": "number",
           "minimum": 0,

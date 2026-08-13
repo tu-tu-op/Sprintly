@@ -5,6 +5,7 @@ import {
   TerminalCommandCounts,
 } from './tracking/terminalCommands';
 import { deriveDeveloperProfile } from './tracking/developerMetrics';
+import { isTelemetryCategoryEnabled } from './tracking/privacySettings';
 
 export interface SessionStats {
   isRecording: boolean;
@@ -121,27 +122,27 @@ export class SessionTracker implements vscode.Disposable {
   private _attach(): void {
     this.listeners.push(
       vscode.workspace.onDidChangeTextDocument(e => {
-        if (!this.stats.isRecording || this.stats.isPaused) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
         this.stats.fileEdits++;
         this.stats.linesChanged += e.contentChanges.reduce(
           (n, c) => n + Math.abs(c.text.split('\n').length - 1), 0);
         this.stats.activeFiles.add(e.document.fileName);
       }),
       vscode.workspace.onDidSaveTextDocument(() => {
-        if (!this.stats.isRecording || this.stats.isPaused) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
         this.stats.fileSaves++;
       }),
       vscode.window.onDidChangeActiveTextEditor(e => {
-        if (!this.stats.isRecording || this.stats.isPaused || !e) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !e || !isTelemetryCategoryEnabled('codingActivity')) return;
         this.stats.fileSwitches++;
         this.stats.activeFiles.add(e.document.fileName);
       }),
       vscode.window.onDidOpenTerminal(() => {
-        if (!this.stats.isRecording || this.stats.isPaused) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
         this.stats.terminalOpens++;
       }),
       vscode.window.onDidEndTerminalShellExecution((event) => {
-        if (!this.stats.isRecording || this.stats.isPaused) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
         const category = classifyTerminalCommand(event.execution.commandLine?.value);
         this.stats.terminalCommands++;
         this.stats.terminalCommandsByCategory[category]++;

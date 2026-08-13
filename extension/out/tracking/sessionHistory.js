@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionHistoryStore = void 0;
+exports.createAggregateSyncPayload = createAggregateSyncPayload;
 exports.buildSessionHistoryRecord = buildSessionHistoryRecord;
 const vscode = require("vscode");
+const privacySettings_1 = require("./privacySettings");
 const HISTORY_KEY = 'sprintly.sessionHistory.v1';
 const DEFAULT_RETENTION = 100;
 class SessionHistoryStore {
@@ -24,6 +26,9 @@ class SessionHistoryStore {
         this.records = [];
         this.persist();
     }
+    exportAggregatePayload() {
+        return createAggregateSyncPayload(this.records, (0, privacySettings_1.getPrivacySettings)());
+    }
     dispose() { }
     persist() {
         const snapshot = this.list();
@@ -33,6 +38,14 @@ class SessionHistoryStore {
     }
 }
 exports.SessionHistoryStore = SessionHistoryStore;
+function createAggregateSyncPayload(records, settings, generatedAt = Date.now()) {
+    return {
+        schemaVersion: 1,
+        generatedAt,
+        cloudSyncEnabled: settings.cloudSyncEnabled,
+        sessions: records.map(cloneRecord),
+    };
+}
 function buildSessionHistoryRecord(state, trackerStats, archetype, traits, metrics, endedAt) {
     const session = state.session;
     if (!session.id || session.startedAt === null) {
@@ -209,7 +222,10 @@ function parseNumberRecord(value) {
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, numberValue(item)]));
 }
 function readRetention() {
-    const value = vscode.workspace?.getConfiguration?.('sprintly').get('historyRetention', DEFAULT_RETENTION);
+    const configuration = vscode.workspace?.getConfiguration
+        ? vscode.workspace.getConfiguration('sprintly')
+        : undefined;
+    const value = configuration?.get('historyRetention', DEFAULT_RETENTION);
     return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : DEFAULT_RETENTION;
 }
 function numberValue(value) {

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { CodingCategory, DailyStateStore } from './dailyStateStore';
+import { isTelemetryCategoryEnabled } from './privacySettings';
 
 export const SESSION_GAP_MS = 900_000;
 const HEARTBEAT_INTERVAL_MS = 120_000;
@@ -22,7 +23,7 @@ export class SessionActivityTracker implements vscode.Disposable {
     this.lifecycleKey = getLifecycleKey(store);
     this.disposables.push(
       vscode.workspace.onDidChangeTextDocument((event) => {
-        if (!this.store.isCapturing()) {
+        if (!this.store.isCapturing() || !isTelemetryCategoryEnabled('codingActivity')) {
           return;
         }
         const uri = event.document.uri.toString();
@@ -37,13 +38,13 @@ export class SessionActivityTracker implements vscode.Disposable {
         }
       }),
       vscode.workspace.onDidSaveTextDocument((document) => {
-        if (!this.store.isCapturing()) {
+        if (!this.store.isCapturing() || !isTelemetryCategoryEnabled('codingActivity')) {
           return;
         }
         this.recordForcedHeartbeat(document.uri.toString(), Date.now());
       }),
       vscode.window.onDidChangeActiveTextEditor((editor) => {
-        if (editor && this.store.isCapturing()) {
+        if (editor && this.store.isCapturing() && isTelemetryCategoryEnabled('codingActivity')) {
           this.recordForcedHeartbeat(editor.document.uri.toString(), Date.now());
         }
       }),

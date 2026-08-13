@@ -7,6 +7,7 @@ exports.isSprintlyEnabled = isSprintlyEnabled;
 exports.isAutoPromptEnabled = isAutoPromptEnabled;
 exports.runConsentFlow = runConsentFlow;
 const vscode = require("vscode");
+const privacySettings_1 = require("./tracking/privacySettings");
 exports.START_SPRINT_LABEL = '$(play) Start Sprint';
 const STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
 async function requestSessionStart() {
@@ -51,10 +52,11 @@ async function shouldPromptOnStartup(context) {
     return true;
 }
 function isSprintlyEnabled() {
-    return getSprintlyConfiguration().get('enabled', true) !== false;
+    return (0, privacySettings_1.getPrivacySettings)().enabled;
 }
 function isAutoPromptEnabled() {
-    return getSprintlyConfiguration().get('autoPromptOnStartup', true) !== false;
+    const settings = (0, privacySettings_1.getPrivacySettings)();
+    return settings.autoPromptOnStartup && settings.enabled;
 }
 async function runConsentFlow(onAccept, context) {
     if (context && !(await shouldPromptOnStartup(context))) {

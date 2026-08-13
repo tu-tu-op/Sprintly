@@ -4,6 +4,7 @@ exports.SessionTracker = void 0;
 const vscode = require("vscode");
 const terminalCommands_1 = require("./tracking/terminalCommands");
 const developerMetrics_1 = require("./tracking/developerMetrics");
+const privacySettings_1 = require("./tracking/privacySettings");
 class SessionTracker {
     constructor() {
         this.stats = this.blank();
@@ -96,26 +97,26 @@ class SessionTracker {
     }
     _attach() {
         this.listeners.push(vscode.workspace.onDidChangeTextDocument(e => {
-            if (!this.stats.isRecording || this.stats.isPaused)
+            if (!this.stats.isRecording || this.stats.isPaused || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
                 return;
             this.stats.fileEdits++;
             this.stats.linesChanged += e.contentChanges.reduce((n, c) => n + Math.abs(c.text.split('\n').length - 1), 0);
             this.stats.activeFiles.add(e.document.fileName);
         }), vscode.workspace.onDidSaveTextDocument(() => {
-            if (!this.stats.isRecording || this.stats.isPaused)
+            if (!this.stats.isRecording || this.stats.isPaused || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
                 return;
             this.stats.fileSaves++;
         }), vscode.window.onDidChangeActiveTextEditor(e => {
-            if (!this.stats.isRecording || this.stats.isPaused || !e)
+            if (!this.stats.isRecording || this.stats.isPaused || !e || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
                 return;
             this.stats.fileSwitches++;
             this.stats.activeFiles.add(e.document.fileName);
         }), vscode.window.onDidOpenTerminal(() => {
-            if (!this.stats.isRecording || this.stats.isPaused)
+            if (!this.stats.isRecording || this.stats.isPaused || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
                 return;
             this.stats.terminalOpens++;
         }), vscode.window.onDidEndTerminalShellExecution((event) => {
-            if (!this.stats.isRecording || this.stats.isPaused)
+            if (!this.stats.isRecording || this.stats.isPaused || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
                 return;
             const category = (0, terminalCommands_1.classifyTerminalCommand)(event.execution.commandLine?.value);
             this.stats.terminalCommands++;

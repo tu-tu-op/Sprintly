@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BuildFailureTracker = exports.FAILURE_PATTERNS = void 0;
 exports.categorizeFailure = categorizeFailure;
 const vscode = require("vscode");
+const privacySettings_1 = require("./privacySettings");
 exports.FAILURE_PATTERNS = [
     { id: 'missing_module', pattern: /Cannot find module|MODULE_NOT_FOUND|ModuleNotFoundError/i },
     { id: 'missing_package', pattern: /command not found|is not recognized as an internal/i },
@@ -45,6 +46,9 @@ class BuildFailureTracker {
             || !event.terminal.shellIntegration
             || !this.integratedTerminals.has(event.terminal)
             || event.exitCode === undefined) {
+            return;
+        }
+        if (!(0, privacySettings_1.isTelemetryCategoryEnabled)('buildFailures')) {
             return;
         }
         const occurredAt = Date.now();

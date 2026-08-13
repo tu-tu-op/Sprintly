@@ -14,6 +14,7 @@ import {
   CopilotTokenStats,
   DailyStateStore,
 } from './dailyStateStore';
+import { isTelemetryCategoryEnabled } from './privacySettings';
 
 const POLL_INTERVAL_MS = 5_000;
 
@@ -268,6 +269,9 @@ export class AgentLogWatcher implements vscode.Disposable {
     batch: ParsedBatch,
     fileWorkspace: FileWorkspaceState,
   ): void {
+    if (!isTelemetryCategoryEnabled('agentUsage')) {
+      return;
+    }
     this.updateFileWorkspace(source, parsed, fileWorkspace);
     if (!fileWorkspace.matches) {
       return;

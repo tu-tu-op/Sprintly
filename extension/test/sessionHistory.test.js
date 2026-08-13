@@ -8,7 +8,7 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const { SessionHistoryStore } = require('../out/tracking/sessionHistory');
+const { SessionHistoryStore, createAggregateSyncPayload } = require('../out/tracking/sessionHistory');
 const { aggregateSessions, calculateLongestStreak } = require('../out/tracking/sessionAggregation');
 Module._load = originalLoad;
 
@@ -100,4 +100,16 @@ test('aggregation calculates period totals, recovery, records, and streaks from 
   assert.equal(calculateLongestStreak(records, now), 2);
   assert.equal(aggregateSessions(records, 'today', now).sessions, 1);
   assert.equal(aggregateSessions(records, 'all', now).sessions, 3);
+});
+
+test('sync payload is versioned and contains aggregate session data only', () => {
+  const source = record('2026-08-13');
+  const payload = createAggregateSyncPayload([source], { cloudSyncEnabled: false }, 123);
+  assert.equal(payload.schemaVersion, 1);
+  assert.equal(payload.generatedAt, 123);
+  assert.equal(payload.cloudSyncEnabled, false);
+  assert.equal(payload.sessions[0].id, source.id);
+  assert.equal('rawCommand' in payload.sessions[0], false);
+  payload.sessions[0].coding.manualMs = 0;
+  assert.equal(source.coding.manualMs, 2_000_000);
 });

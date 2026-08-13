@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { getPrivacySettings } from './tracking/privacySettings';
 
 export const START_SPRINT_LABEL = '$(play) Start Sprint';
 const STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
@@ -56,11 +57,12 @@ export async function shouldPromptOnStartup(context: vscode.ExtensionContext): P
 }
 
 export function isSprintlyEnabled(): boolean {
-  return getSprintlyConfiguration().get<boolean>('enabled', true) !== false;
+  return getPrivacySettings().enabled;
 }
 
 export function isAutoPromptEnabled(): boolean {
-  return getSprintlyConfiguration().get<boolean>('autoPromptOnStartup', true) !== false;
+  const settings = getPrivacySettings();
+  return settings.autoPromptOnStartup && settings.enabled;
 }
 
 export async function runConsentFlow(

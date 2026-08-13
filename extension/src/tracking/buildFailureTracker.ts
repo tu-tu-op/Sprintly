@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { DailyStateStore } from './dailyStateStore';
+import { isTelemetryCategoryEnabled } from './privacySettings';
 
 export const FAILURE_PATTERNS: Array<{ id: string; pattern: RegExp }> = [
   { id: 'missing_module', pattern: /Cannot find module|MODULE_NOT_FOUND|ModuleNotFoundError/i },
@@ -51,6 +52,9 @@ export class BuildFailureTracker implements vscode.Disposable {
       || !event.terminal.shellIntegration
       || !this.integratedTerminals.has(event.terminal)
       || event.exitCode === undefined) {
+      return;
+    }
+    if (!isTelemetryCategoryEnabled('buildFailures')) {
       return;
     }
 

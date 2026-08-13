@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionActivityTracker = exports.SESSION_GAP_MS = void 0;
 exports.classifyChange = classifyChange;
 const vscode = require("vscode");
+const privacySettings_1 = require("./privacySettings");
 exports.SESSION_GAP_MS = 900000;
 const HEARTBEAT_INTERVAL_MS = 120000;
 class SessionActivityTracker {
@@ -14,7 +15,7 @@ class SessionActivityTracker {
         this.forceNextHeartbeat = new Set();
         this.lifecycleKey = getLifecycleKey(store);
         this.disposables.push(vscode.workspace.onDidChangeTextDocument((event) => {
-            if (!this.store.isCapturing()) {
+            if (!this.store.isCapturing() || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity')) {
                 return;
             }
             const uri = event.document.uri.toString();
@@ -28,12 +29,12 @@ class SessionActivityTracker {
                 this.recordTextHeartbeat(uri, category, Date.now());
             }
         }), vscode.workspace.onDidSaveTextDocument((document) => {
-            if (!this.store.isCapturing()) {
+            if (!this.store.isCapturing() || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity')) {
                 return;
             }
             this.recordForcedHeartbeat(document.uri.toString(), Date.now());
         }), vscode.window.onDidChangeActiveTextEditor((editor) => {
-            if (editor && this.store.isCapturing()) {
+            if (editor && this.store.isCapturing() && (0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity')) {
                 this.recordForcedHeartbeat(editor.document.uri.toString(), Date.now());
             }
         }), this.store.onDidUpdate(() => this.handleSessionLifecycleChange()));
