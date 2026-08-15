@@ -1,0 +1,136 @@
+import * as vscode from 'vscode';
+import { CodingCategory, DailyStateStore } from './dailyStateStore';
+import { isTelemetryCategoryEnabled } from './privacySettings';
+
+export const SESSION_GAP_MS = 900_000;
+const HEARTBEAT_INTERVAL_MS = 120_000;
+
+interface Heartbeat {
+  uri: string;
+  time: number;
+  category: CodingCategory;
+}
+
+export class SessionActivityTracker implements vscode.Disposable {
+  private readonly disposables: vscode.Disposable[] = [];
+  private readonly lastHeartbeats = new Map<string, Heartbeat>();
+  private readonly lastEditCategories = new Map<string, CodingCategory>();
+  private readonly forceNextHeartbeat = new Set<string>();
+  private lastSessionHeartbeat: Heartbeat | undefined;
+  private lifecycleKey: string;
+
+  constructor(private readonly store: DailyStateStore) {
+    this.lifecycleKey = getLifecycleKey(store);
+    this.disposables.push(
+      vscode.workspace.onDidChangeTextDocument((event) => {
+        if (!this.store.isCapturing() || !isTelemetryCategoryEnabled('codingActivity')) {
+          return;
+        }
+        const uri = event.document.uri.toString();
+        for (const change of event.contentChanges) {
+          if (change.text === '' && change.rangeLength > 0) {
+            this.recordNeutralEdit(uri);
+            continue;
+          }
+          const category = classifyChange(change.text, change.rangeLength);
+          this.lastEditCategories.set(uri, category);
+          this.recordTextHeartbeat(uri, category, Date.now());
+        }
+      }),
+      vscode.workspace.onDidSaveTextDocument((document) => {
+        if (!this.store.isCapturing() || !isTelemetryCategoryEnabled('codingActivity')) {
+          return;
+        }
+        this.recordForcedHeartbeat(document.uri.toString(), Date.now());
+      }),
+      vscode.window.onDidChangeActiveTextEditor((editor) => {
+        if (editor && this.store.isCapturing() && isTelemetryCategoryEnabled('codingActivity')) {
+          this.recordForcedHeartbeat(editor.document.uri.toString(), Date.now());
+        }
+      }),
+      this.store.onDidUpdate(() => this.handleSessionLifecycleChange()),
+    );
+  }
+
+  dispose(): void {
+    for (const disposable of this.disposables) {
+      disposable.dispose();
+    }
+  }
+
+  private recordNeutralEdit(uri: string): void {
+    this.lastEditCategories.delete(uri);
+    this.forceNextHeartbeat.add(uri);
+    if (this.lastSessionHeartbeat?.uri === uri) {
+      this.lastSessionHeartbeat = undefined;
+    }
+  }
+
+  private recordTextHeartbeat(uri: string, category: CodingCategory, now: number): void {
+    const previous = this.lastHeartbeats.get(uri);
+    const shouldHeartbeat = !previous
+      || this.forceNextHeartbeat.has(uri)
+      || now - previous.time >= HEARTBEAT_INTERVAL_MS
+      || previous.category !== category;
+    if (!shouldHeartbeat) {
+      return;
+    }
+    this.forceNextHeartbeat.delete(uri);
+    this.commitHeartbeat({ uri, time: now, category });
+  }
+
+  private recordForcedHeartbeat(uri: string, now: number): void {
+    const previous = this.lastHeartbeats.get(uri);
+    // ASSUMPTION: a save or first activation without a classified edit is hardcode,
+    // because the required heartbeat must carry one of the two duration categories.
+    const category = this.lastEditCategories.get(uri) ?? previous?.category ?? 'manual';
+    this.forceNextHeartbeat.delete(uri);
+    this.commitHeartbeat({ uri, time: now, category });
+  }
+
+  private commitHeartbeat(heartbeat: Heartbeat): void {
+    if (!this.store.isCapturing(heartbeat.time)) {
+      return;
+    }
+    const previous = this.lastSessionHeartbeat;
+    if (previous && previous.category === heartbeat.category) {
+      const rawGap = heartbeat.time - previous.time;
+      if (rawGap >= 0 && rawGap <= SESSION_GAP_MS) {
+        this.store.addSessionDuration(heartbeat.category, rawGap, heartbeat.time);
+      }
+    }
+    this.lastHeartbeats.set(heartbeat.uri, heartbeat);
+    this.lastSessionHeartbeat = heartbeat;
+  }
+
+  private handleSessionLifecycleChange(): void {
+    const nextLifecycleKey = getLifecycleKey(this.store);
+    if (nextLifecycleKey === this.lifecycleKey) {
+      return;
+    }
+    this.lifecycleKey = nextLifecycleKey;
+    this.lastHeartbeats.clear();
+    this.lastEditCategories.clear();
+    this.forceNextHeartbeat.clear();
+    this.lastSessionHeartbeat = undefined;
+  }
+}
+
+export function classifyChange(
+  text: string,
+  replacedLength = 0,
+  knownAttribution?: 'ai-assisted' | 'automation',
+): CodingCategory {
+  if (knownAttribution) {
+    return knownAttribution;
+  }
+  // VS Code does not expose which completion provider authored a document change.
+  // Normal typing is observable; bulk inserts/replacements are intentionally kept
+  // unattributed instead of being presented as factually AI-generated.
+  return text.length > 1 || replacedLength > 0 ? 'unknown-bulk' : 'manual';
+}
+
+function getLifecycleKey(store: DailyStateStore): string {
+  const session = store.get().session;
+  return `${session.id ?? ''}:${session.isActive}:${session.isPaused}`;
+}

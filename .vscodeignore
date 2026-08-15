@@ -1,0 +1,12 @@
+.vscode/**
+src/**
+test/**
+extension/**
+website/**
+sprintly_codex_prompts_first_draft.md
+sprintly-v2-workplan.md
+CLAUDE*.md
+UI-prompt.md
+extension-UI.md
+.gitignore
+tsconfig.json

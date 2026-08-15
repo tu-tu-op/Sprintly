@@ -1,0 +1,125 @@
+{
+  "name": "sprintly",
+  "displayName": "DevStrava / Sprintly",
+  "description": "Strava for developers — track your coding sessions.",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.93.0" },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "sprintly.startSession",    "title": "Sprintly: Start Session" },
+      { "command": "sprintly.stopSession",     "title": "Sprintly: Stop Session" },
+      { "command": "sprintly.pauseSession",    "title": "Sprintly: Pause Session" },
+      { "command": "sprintly.resumeSession",   "title": "Sprintly: Resume Session" },
+      { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
+      { "command": "sprintly.clearHistory",    "title": "Sprintly: Clear Session History" },
+      { "command": "sprintly.exportData",      "title": "Sprintly: Export DevStrava Data", "category": "Sprintly" },
+      { "command": "sprintly.importData",      "title": "Sprintly: Import DevStrava Data", "category": "Sprintly" },
+      { "command": "sprintly.connectWebsite",  "title": "Connect to DevStrava Website", "category": "Sprintly" },
+      { "command": "sprintly.showStatusPanel", "title": "Open Quick Panel",       "category": "Sprintly" },
+      { "command": "sprintly.openPanel",       "title": "Open Quick Panel",       "category": "Sprintly" },
+      { "command": "sprintly.shareSession",    "title": "Share Session",          "category": "Sprintly" },
+      { "command": "sprintly.syncHistory",    "title": "Sync History to DevStrava Website", "category": "Sprintly" },
+      { "command": "sprintly.joinLeaderboard", "title": "Join DevStrava Leaderboard", "category": "Sprintly" },
+      { "command": "sprintly.saveSession",     "title": "Save Session",           "category": "Sprintly" },
+      { "command": "sprintly.devOpenScreen",   "title": "Dev: Jump to Screen",    "category": "Sprintly" }
+    ],
+    "configuration": {
+      "title": "Sprintly",
+      "properties": {
+        "sprintly.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable Sprintly."
+        },
+        "sprintly.autoPromptOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask whether to start a Sprintly session when VS Code opens."
+        },
+        "sprintly.localHistoryEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep aggregate session history locally in the current workspace. No network transfer is performed by this setting."
+        },
+        "sprintly.historyRetention": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 100,
+          "description": "Maximum number of aggregate session records kept locally."
+        },
+        "sprintly.cloudSyncEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Consent for the explicit Sync History action to prepare an aggregate-only website handoff. It never enables automatic uploads."
+        },
+        "sprintly.websiteUrl": {
+          "type": "string",
+          "default": "https://sprintly.app/connect",
+          "description": "DevStrava website connection URL. The extension opens it only after an explicit handoff command and never puts session data in the URL."
+        },
+        "sprintly.telemetry.trackCodingActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local coding activity counters and coding-style duration."
+        },
+        "sprintly.telemetry.trackAgentUsage": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local AI-agent prompt and token aggregates."
+        },
+        "sprintly.telemetry.trackBuildFailures": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local aggregate terminal failure and recovery metrics."
+        },
+        "sprintly.telemetry.showAiTracking": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show AI-assisted metrics in the Sprintly Quick Panel."
+        },
+        "sprintly.pricing.claudeCode.input": {
+          "type": "number",
+          "minimum": 0,
+          "default": 3.0,
+          "description": "Estimated Claude Code input-token price in USD per million tokens."
+        },
+        "sprintly.pricing.claudeCode.output": {
+          "type": "number",
+          "minimum": 0,
+          "default": 15.0,
+          "description": "Estimated Claude Code output-token price in USD per million tokens."
+        },
+        "sprintly.pricing.claudeCode.cacheRead": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0.3,
+          "description": "Estimated Claude Code cache-read token price in USD per million tokens."
+        },
+        "sprintly.pricing.claudeCode.cacheCreate": {
+          "type": "number",
+          "minimum": 0,
+          "default": 3.75,
+          "description": "Estimated Claude Code cache-creation token price in USD per million tokens."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "typecheck": "tsc --noEmit -p ./",
+    "lint": "tsc --noEmit -p ./",
+    "test": "npm run compile && node --test test/*.test.js",
+    "package:check": "npm run compile && npm pack --dry-run",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.x",
+    "@types/vscode": "^1.93.0",
+    "typescript": "^5.x"
+  }
+}

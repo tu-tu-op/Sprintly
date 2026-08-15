@@ -123,8 +123,13 @@ This inventory describes the VS Code extension started by `out/extension.js`. It
 | `sprintly.showStatusPanel` | `Open Quick Panel` | **Active.** Opens the canonical Sprintly Quick Panel. |
 | `sprintly.clearHistory` | `Sprintly: Clear Session History` | **Active.** Deletes locally retained aggregate history after the user confirms. |
 | `sprintly.openPanel` | `Open Quick Panel` | **Active alias.** Opens the same Quick Panel. |
-| `sprintly.shareSession` | `Share Session` | **Placeholder.** Currently displays a “coming soon” message. |
-| `sprintly.saveSession` | `Save Session` | **Placeholder.** Currently displays a saved message but does not persist a history record. |
+| `sprintly.shareSession` | `Share Session` | **Active.** Selects a completed local session, writes an aggregate-only handoff file, and opens the configured website. |
+| `sprintly.saveSession` | `Save Session` | **Active alias.** Exports the local aggregate history to a user-selected JSON file. |
+| `sprintly.exportData` | `Export DevStrava Data` | **Active.** Writes a versioned local export file. |
+| `sprintly.importData` | `Import DevStrava Data` | **Active.** Validates and merges a versioned export file. |
+| `sprintly.connectWebsite` | `Connect to DevStrava Website` | **Active fallback.** Opens the configured website without transferring data. |
+| `sprintly.syncHistory` | `Sync History to DevStrava Website` | **Active fallback.** Requires explicit cloud-sync consent, then prepares a file handoff. |
+| `sprintly.joinLeaderboard` | `Join DevStrava Leaderboard` | **Active fallback.** Prepares aggregate-only weekly leaderboard data. |
 | `sprintly.devOpenScreen` | `Dev: Jump to Screen` | **Preview.** Opens the demo-screen selector described below. |
 
 ## Settings
@@ -134,7 +139,9 @@ This inventory describes the VS Code extension started by `out/extension.js`. It
 | `sprintly.enabled` | `true` | **Active.** Disables session start, automatic prompts, and telemetry collection when false. |
 | `sprintly.autoPromptOnStartup` | `true` | **Active.** Controls the one-time startup prompt per extension-host process and workspace. |
 | `sprintly.historyRetention` | `100` | **Active.** Retains a bounded number of aggregate session records in global state. |
-| `sprintly.cloudSyncEnabled` | `false` | **Local boundary only.** Marks an aggregate export as eligible for a future sync transport; the extension does not transmit data. |
+| `sprintly.localHistoryEnabled` | `true` | **Active.** Enables workspace-local aggregate history persistence. |
+| `sprintly.cloudSyncEnabled` | `false` | **Active consent gate.** Allows only the explicit Sync History file handoff; it never enables automatic uploads. |
+| `sprintly.websiteUrl` | `https://sprintly.app/connect` | **Active.** Website URL opened after explicit handoff commands; payloads are never put in the URL. |
 | `sprintly.telemetry.trackCodingActivity` | `true` | **Active.** Controls document, save, editor, and terminal activity counters. |
 | `sprintly.telemetry.trackAgentUsage` | `true` | **Active.** Controls local prompt/token aggregate collection. |
 | `sprintly.telemetry.trackBuildFailures` | `true` | **Active.** Controls terminal failure and recovery aggregates. |
@@ -168,7 +175,7 @@ The `Dev: Jump to Screen` command exposes a richer Quick Pick UI concept. These 
 
 ## Current limitations and non-features
 
-- Session history is retained locally as bounded aggregate records. A hosted history database and transport are not included.
+- Session history is retained locally as bounded aggregate records. The website handoff uses an explicit JSON-file fallback; a hosted history database and authenticated transport are not included.
 - General live activity counters are persisted when a sprint ends; in-progress counters are still session-local until stop/recovery.
 - Share, hosted export, friends, remote rank, and social/profile behavior remain placeholders because no authenticated website API is connected to the active extension.
 - Sprintly does not currently capture agent/API errors. “Build failures” specifically means failed integrated-terminal executions.
@@ -177,7 +184,7 @@ The `Dev: Jump to Screen` command exposes a richer Quick Pick UI concept. These 
 - Build-failure tracking requires VS Code terminal shell integration and an available exit code.
 - Codex tokens can be unavailable when its local log does not provide a supported usage record.
 - Copilot discovery is reliable for folder workspaces; a `.code-workspace` storage URI is not currently resolved back to its constituent folders.
-- The website/social layer is not wired to the active extension; the local sync payload is the integration boundary for a future authenticated service.
+- The website/social layer has no production authenticated API in this repository; the local `devstrava.session.v1` payload is the explicit integration boundary.
 - `SessionPanelProvider`, its webview HTML, the older status-bar implementation, and legacy JavaScript session/UI modules exist in the source tree but are not registered by the active TypeScript entry point.
 
 ## Implementation map
@@ -194,7 +201,8 @@ The `Dev: Jump to Screen` command exposes a richer Quick Pick UI concept. These 
 | Incremental agent-log processing | `src/tracking/agentLogWatcher.ts` |
 | Terminal failure tracking | `src/tracking/buildFailureTracker.ts` |
 | Privacy controls | `src/tracking/privacySettings.ts` |
-| Session history and aggregate sync payload | `src/tracking/sessionHistory.ts` and `src/tracking/sessionAggregation.ts` |
+| Session history and aggregate sync payload | `src/tracking/localSessionStore.ts`, `src/tracking/sessionSchema.ts`, and `src/tracking/sessionAggregation.ts` |
+| Website handoff and optional signing | `src/tracking/websiteHandoff.ts` and `src/tracking/sessionVerification.ts` |
 | Developer identity and gamification foundation | `src/tracking/developerIdentity.ts` and `src/tracking/gamification.ts` |
 | Claude price configuration and estimate | `src/tracking/pricing.ts` |
 | Status bar and hover card | `src/panels/statusBar.ts` |
