@@ -121,7 +121,7 @@ test('inactive scans advance cursors without adding usage', () => {
   assert.deepEqual(state.detectedAgents, []);
 });
 
-test('a persisted active session is closed when Sprintly reopens', () => {
+test('a persisted active session is closed at its last durable observation', () => {
   const memento = new TestMemento();
   const first = new DailyStateStore(memento, () => 100);
   first.startSession(100, 'interrupted-session');
@@ -131,6 +131,41 @@ test('a persisted active session is closed when Sprintly reopens', () => {
     const state = reopened.get();
     assert.equal(state.session.id, 'interrupted-session');
     assert.equal(state.session.isActive, false);
-    assert.equal(state.session.endedAt, 250);
+    // The session closed at its last observation (the start mutation), not at
+    // restart time: offline time must never be counted as session time.
+    assert.equal(state.session.endedAt, 100);
+    assert.equal(state.lastObservedAt, 100);
+  });
+});
+
+test('offline time between processes is excluded from recovered duration', () => {
+  const memento = new TestMemento();
+  let now = 1_000;
+  const first = new DailyStateStore(memento, () => now);
+  first.startSession(now, 'offline-session');
+
+  now = 1_500;
+  first.applyAgentLogBatch({
+    sourceId: 'codex',
+    detected: true,
+    filePath: 'codex.jsonl',
+    nextOffset: 10,
+    promptCount: 1,
+    sessionId: 'offline-session',
+  });
+
+  return new Promise((resolve) => setImmediate(resolve)).then(() => {
+    // VS Code was down for a long time; the new process reopens much later.
+    now = 3_601_500;
+    const reopened = new DailyStateStore(memento, () => now);
+    const state = reopened.get();
+    assert.equal(state.session.isActive, false);
+    assert.equal(state.session.endedAt, 1_500);
+    // Boundary-derived active duration is 500ms, not ~one hour.
+    const activeMs = state.session.endedAt - (state.session.startedAt ?? 0)
+      - state.session.pauses.reduce((total, pause) => (
+        total + Math.max(0, (pause.endedAt ?? state.session.endedAt ?? 0) - pause.startedAt)
+      ), 0);
+    assert.equal(activeMs, 500);
   });
 });

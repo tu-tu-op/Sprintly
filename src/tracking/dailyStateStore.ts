@@ -76,6 +76,13 @@ export interface SprintlySessionState {
   buildFailures: BuildFailureStats;
   tokenStats: TokenStats;
   agentFileCursors: Record<string, AgentFileCursor>;
+  /**
+   * Last durable observation of live session activity (editor heartbeat,
+   * terminal event, agent batch, or lifecycle transition). Interrupted
+   * sessions are closed at this boundary so VS Code/machine downtime is never
+   * counted as coding time.
+   */
+  lastObservedAt: number | null;
 }
 
 /** @deprecated Kept as a source-compatible alias while consumers migrate names. */
@@ -116,8 +123,14 @@ export class DailyStateStore implements vscode.Disposable {
 
     // Extension shutdown is not guaranteed to run. Never carry an active capture
     // window into a later VS Code process, because that would merge two sessions.
+    // Close at the last durable observation, not at restart time: offline time
+    // between the two processes must not count as session time.
     if (this.state.session.isActive) {
-      closeSession(this.state.session, this.now());
+      const lastObserved = this.state.lastObservedAt;
+      const endedAt = lastObserved !== null && lastObserved >= (this.state.session.startedAt ?? 0)
+        ? Math.min(lastObserved, this.now())
+        : this.now();
+      closeSession(this.state.session, endedAt);
       this.persist();
     }
   }
@@ -144,6 +157,7 @@ export class DailyStateStore implements vscode.Disposable {
       startedAt: timestamp,
       isActive: true,
     };
+    this.state.lastObservedAt = timestamp;
     this.persistAndEmit();
     return id;
   }
@@ -157,6 +171,7 @@ export class DailyStateStore implements vscode.Disposable {
     session.isPaused = true;
     session.pausedAt = timestamp;
     session.pauses.push({ startedAt: timestamp, endedAt: null });
+    this.touch();
     this.persistAndEmit();
   }
 
@@ -166,6 +181,7 @@ export class DailyStateStore implements vscode.Disposable {
       return;
     }
     closePause(session, safeTimestamp(resumedAt, this.now()));
+    this.touch();
     this.persistAndEmit();
   }
 
@@ -173,7 +189,12 @@ export class DailyStateStore implements vscode.Disposable {
     if (!this.state.session.isActive) {
       return;
     }
-    closeSession(this.state.session, safeTimestamp(endedAt, this.now()));
+    const timestamp = safeTimestamp(endedAt, this.now());
+    closeSession(this.state.session, timestamp);
+    // The last durable observation can never postdate the session end.
+    if (this.state.lastObservedAt === null || this.state.lastObservedAt > timestamp) {
+      this.state.lastObservedAt = timestamp;
+    }
     this.persistAndEmit();
   }
 
@@ -305,7 +326,16 @@ export class DailyStateStore implements vscode.Disposable {
 
   private mutate(change: (state: SprintlySessionState) => void): void {
     change(this.state);
+    this.touch();
     this.persistAndEmit();
+  }
+
+  /** Record a durable observation of live activity for interrupted recovery. */
+  private touch(): void {
+    const now = this.now();
+    if (this.state.lastObservedAt === null || now > this.state.lastObservedAt) {
+      this.state.lastObservedAt = now;
+    }
   }
 
   private persistAndEmit(): void {
@@ -346,6 +376,7 @@ function createEmptyState(
     },
     tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
     agentFileCursors,
+    lastObservedAt: null,
   };
 }
 
@@ -394,6 +425,7 @@ function parseStoredState(value: unknown): SprintlySessionState {
   return {
     version: 3,
     detectedAgents: parseDetectedAgents(value.detectedAgents),
+    lastObservedAt: nullableTimestamp(value.lastObservedAt),
     session: {
       id: typeof session.id === 'string' ? session.id : null,
       startedAt: nullableTimestamp(session.startedAt),
@@ -514,6 +546,7 @@ function cloneState(state: SprintlySessionState): SprintlySessionState {
   return {
     version: 3,
     detectedAgents: [...state.detectedAgents],
+    lastObservedAt: state.lastObservedAt,
     session: {
       ...state.session,
       manualMs: state.session.manualMs,

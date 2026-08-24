@@ -18,8 +18,14 @@ class DailyStateStore {
         this.interruptedSessionId = this.state.session.isActive ? this.state.session.id : null;
         // Extension shutdown is not guaranteed to run. Never carry an active capture
         // window into a later VS Code process, because that would merge two sessions.
+        // Close at the last durable observation, not at restart time: offline time
+        // between the two processes must not count as session time.
         if (this.state.session.isActive) {
-            closeSession(this.state.session, this.now());
+            const lastObserved = this.state.lastObservedAt;
+            const endedAt = lastObserved !== null && lastObserved >= (this.state.session.startedAt ?? 0)
+                ? Math.min(lastObserved, this.now())
+                : this.now();
+            closeSession(this.state.session, endedAt);
             this.persist();
         }
     }
@@ -42,6 +48,7 @@ class DailyStateStore {
             startedAt: timestamp,
             isActive: true,
         };
+        this.state.lastObservedAt = timestamp;
         this.persistAndEmit();
         return id;
     }
@@ -54,6 +61,7 @@ class DailyStateStore {
         session.isPaused = true;
         session.pausedAt = timestamp;
         session.pauses.push({ startedAt: timestamp, endedAt: null });
+        this.touch();
         this.persistAndEmit();
     }
     resumeSession(resumedAt = this.now()) {
@@ -62,13 +70,19 @@ class DailyStateStore {
             return;
         }
         closePause(session, safeTimestamp(resumedAt, this.now()));
+        this.touch();
         this.persistAndEmit();
     }
     stopSession(endedAt = this.now()) {
         if (!this.state.session.isActive) {
             return;
         }
-        closeSession(this.state.session, safeTimestamp(endedAt, this.now()));
+        const timestamp = safeTimestamp(endedAt, this.now());
+        closeSession(this.state.session, timestamp);
+        // The last durable observation can never postdate the session end.
+        if (this.state.lastObservedAt === null || this.state.lastObservedAt > timestamp) {
+            this.state.lastObservedAt = timestamp;
+        }
         this.persistAndEmit();
     }
     resetSession() {
@@ -189,7 +203,15 @@ class DailyStateStore {
     }
     mutate(change) {
         change(this.state);
+        this.touch();
         this.persistAndEmit();
+    }
+    /** Record a durable observation of live activity for interrupted recovery. */
+    touch() {
+        const now = this.now();
+        if (this.state.lastObservedAt === null || now > this.state.lastObservedAt) {
+            this.state.lastObservedAt = now;
+        }
     }
     persistAndEmit() {
         this.persist();
@@ -225,6 +247,7 @@ function createEmptyState(agentFileCursors = {}) {
         },
         tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
         agentFileCursors,
+        lastObservedAt: null,
     };
 }
 function emptySession() {
@@ -267,6 +290,7 @@ function parseStoredState(value) {
     return {
         version: 3,
         detectedAgents: parseDetectedAgents(value.detectedAgents),
+        lastObservedAt: nullableTimestamp(value.lastObservedAt),
         session: {
             id: typeof session.id === 'string' ? session.id : null,
             startedAt: nullableTimestamp(session.startedAt),
@@ -375,6 +399,7 @@ function cloneState(state) {
     return {
         version: 3,
         detectedAgents: [...state.detectedAgents],
+        lastObservedAt: state.lastObservedAt,
         session: {
             ...state.session,
             manualMs: state.session.manualMs,
