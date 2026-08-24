@@ -63,6 +63,8 @@ export interface LocalSessionStoreOptions {
   storageKey?: string;
   legacyStorageKey?: string;
   now?: () => number;
+  /** Observability hook for workspace-state write failures. */
+  onError?: (error: unknown) => void;
 }
 
 export interface AggregateSyncPayload {
@@ -92,10 +94,12 @@ export class LocalSessionStore implements vscode.Disposable {
   private records: SessionHistoryRecord[];
   private drafts: SessionHistoryRecord[];
   private persistQueue: Promise<void> = Promise.resolve();
+  private lastPersistError: unknown;
   private readonly retentionOverride: number | undefined;
   private readonly now: () => number;
   private readonly storageKey: string;
   private readonly legacyStorageKey: string;
+  private readonly onPersistError: ((error: unknown) => void) | undefined;
 
   constructor(
     private readonly storage: vscode.Memento,
@@ -108,6 +112,7 @@ export class LocalSessionStore implements vscode.Disposable {
     this.now = normalizedOptions.now ?? Date.now;
     this.storageKey = normalizedOptions.storageKey ?? DEFAULT_STORAGE_KEY;
     this.legacyStorageKey = normalizedOptions.legacyStorageKey ?? LEGACY_STORAGE_KEY;
+    this.onPersistError = normalizedOptions.onError;
     const parsed = parsePersistedStore(
       storage.get<unknown>(this.storageKey),
       storage.get<unknown>(this.legacyStorageKey),
@@ -313,6 +318,20 @@ export class LocalSessionStore implements vscode.Disposable {
     return this.complete(id, { endedAt: Math.max(record.startedAt, endedAt) });
   }
 
+  /**
+   * Await every queued workspace-state write. Critical lifecycle commands call
+   * this so success is only reported after state is durably persisted; a
+   * stored failure is rethrown once (audit Bug #13).
+   */
+  async flush(): Promise<void> {
+    await this.persistQueue;
+    if (this.lastPersistError !== undefined) {
+      const error = this.lastPersistError;
+      this.lastPersistError = undefined;
+      throw error;
+    }
+  }
+
   dispose(): void {}
 
   private get retention(): number {
@@ -330,7 +349,16 @@ export class LocalSessionStore implements vscode.Disposable {
     };
     this.persistQueue = this.persistQueue
       .then(() => this.storage.update(this.storageKey, snapshot))
-      .then(() => undefined, () => undefined);
+      .then(() => undefined, (error: unknown) => {
+        // Storage failures are captured and observable through flush() and
+        // the onError hook instead of being silently swallowed.
+        this.lastPersistError = error;
+        try {
+          this.onPersistError?.(error);
+        } catch {
+          // Listener errors must never break persistence bookkeeping.
+        }
+      });
   }
 }
 

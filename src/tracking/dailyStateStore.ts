@@ -117,6 +117,7 @@ export class DailyStateStore implements vscode.Disposable {
   private state: SprintlySessionState;
   private readonly interruptedSessionId: string | null;
   private persistQueue: Promise<void> = Promise.resolve();
+  private lastPersistError: unknown;
   private readonly updateEmitter = new vscode.EventEmitter<Readonly<SprintlySessionState>>();
 
   readonly onDidUpdate = this.updateEmitter.event;
@@ -124,6 +125,7 @@ export class DailyStateStore implements vscode.Disposable {
   constructor(
     private readonly globalState: vscode.Memento,
     private readonly now: () => number = Date.now,
+    private readonly onPersistError?: (error: unknown) => void,
   ) {
     const stored = globalState.get<unknown>(SESSION_STATE_KEY)
       ?? globalState.get<unknown>(LEGACY_DAILY_STATE_KEY);
@@ -348,6 +350,20 @@ export class DailyStateStore implements vscode.Disposable {
     });
   }
 
+  /**
+   * Await every queued workspace-state write. Critical lifecycle commands call
+   * this so success is only reported after state is durably persisted; a
+   * stored failure is rethrown once (audit Bug #13).
+   */
+  async flush(): Promise<void> {
+    await this.persistQueue;
+    if (this.lastPersistError !== undefined) {
+      const error = this.lastPersistError;
+      this.lastPersistError = undefined;
+      throw error;
+    }
+  }
+
   dispose(): void {
     this.updateEmitter.dispose();
   }
@@ -375,7 +391,16 @@ export class DailyStateStore implements vscode.Disposable {
     const snapshot = cloneState(this.state);
     this.persistQueue = this.persistQueue
       .then(() => this.globalState.update(SESSION_STATE_KEY, snapshot))
-      .then(() => undefined, () => undefined);
+      .then(() => undefined, (error: unknown) => {
+        // Storage failures are captured and observable through flush() and
+        // the onError hook instead of being silently swallowed.
+        this.lastPersistError = error;
+        try {
+          this.onPersistError?.(error);
+        } catch {
+          // Listener errors must never break persistence bookkeeping.
+        }
+      });
   }
 }
 

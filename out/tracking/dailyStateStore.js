@@ -12,9 +12,10 @@ const RECOVERABLE_FAMILIES = {
     lint: 'lint_failure',
 };
 class DailyStateStore {
-    constructor(globalState, now = Date.now) {
+    constructor(globalState, now = Date.now, onPersistError) {
         this.globalState = globalState;
         this.now = now;
+        this.onPersistError = onPersistError;
         this.persistQueue = Promise.resolve();
         this.updateEmitter = new vscode.EventEmitter();
         this.onDidUpdate = this.updateEmitter.event;
@@ -222,6 +223,19 @@ class DailyStateStore {
             }
         });
     }
+    /**
+     * Await every queued workspace-state write. Critical lifecycle commands call
+     * this so success is only reported after state is durably persisted; a
+     * stored failure is rethrown once (audit Bug #13).
+     */
+    async flush() {
+        await this.persistQueue;
+        if (this.lastPersistError !== undefined) {
+            const error = this.lastPersistError;
+            this.lastPersistError = undefined;
+            throw error;
+        }
+    }
     dispose() {
         this.updateEmitter.dispose();
     }
@@ -245,7 +259,17 @@ class DailyStateStore {
         const snapshot = cloneState(this.state);
         this.persistQueue = this.persistQueue
             .then(() => this.globalState.update(SESSION_STATE_KEY, snapshot))
-            .then(() => undefined, () => undefined);
+            .then(() => undefined, (error) => {
+            // Storage failures are captured and observable through flush() and
+            // the onError hook instead of being silently swallowed.
+            this.lastPersistError = error;
+            try {
+                this.onPersistError?.(error);
+            }
+            catch {
+                // Listener errors must never break persistence bookkeeping.
+            }
+        });
     }
 }
 exports.DailyStateStore = DailyStateStore;

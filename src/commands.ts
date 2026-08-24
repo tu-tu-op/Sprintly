@@ -66,6 +66,21 @@ export function registerCommands(
   const lifecycle = new LifecycleQueue();
 
   /**
+   * Critical lifecycle and data commands only report success after their
+   * workspace-state writes are durably persisted; storage failures surface to
+   * the user instead of being swallowed (audit Bug #13).
+   */
+  const persistOrWarn = async (): Promise<void> => {
+    try {
+      await Promise.all([sessionStore.flush(), historyStore.flush()]);
+    } catch {
+      void vscode.window.showErrorMessage(
+        'Sprintly could not save session data. Your changes may be lost.',
+      );
+    }
+  };
+
+  /**
    * The session id this process is actively recording, or null. Draft
    * synchronization is gated on it so late cursor-only or delayed agent events
    * after End can never recreate a hidden draft behind a frozen completed
@@ -112,6 +127,7 @@ export function registerCommands(
       recordingId = id;
       syncDraft();
       refresh();
+      await persistOrWarn();
       void vscode.window.showInformationMessage('Sprintly session started.');
     });
   };
@@ -155,6 +171,7 @@ export function registerCommands(
     // once the sprint ends.
     agentLogWatcher.stop();
     refresh();
+    await persistOrWarn();
     void vscode.window.showInformationMessage(
       `Sprintly session ended: ${record?.edits ?? 0} edits · ${Math.floor((record?.activeDurationMs ?? 0) / 60_000)}m`,
     );
@@ -169,6 +186,7 @@ export function registerCommands(
     recordingId = null;
     agentLogWatcher.stop();
     refresh();
+    await persistOrWarn();
   });
 
   const clearHistory = async (): Promise<void> => {
@@ -179,6 +197,7 @@ export function registerCommands(
     );
     if (confirmation !== 'Clear History') return;
     historyStore.clear();
+    await persistOrWarn();
     void vscode.window.showInformationMessage('Sprintly session history cleared.');
   };
 
@@ -202,6 +221,7 @@ export function registerCommands(
     for (const key of ALL_STORAGE_KEYS) {
       await context.workspaceState.update(key, undefined);
     }
+    await persistOrWarn();
     void vscode.window.showInformationMessage('All Sprintly local data erased.');
   };
 
@@ -217,6 +237,7 @@ export function registerCommands(
       const payload = await handoff.readPayload();
       if (payload === null) return;
       const count = historyStore.import(payload, 'merge');
+      await persistOrWarn();
       void vscode.window.showInformationMessage(`Imported ${count} DevStrava session${count === 1 ? '' : 's'}.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The selected DevStrava file is invalid.';

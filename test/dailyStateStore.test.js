@@ -36,6 +36,7 @@ Module._load = originalLoad;
 class TestMemento {
   constructor(initial = {}) {
     this.values = new Map(Object.entries(initial));
+    this.failNextUpdate = false;
   }
 
   get(key) {
@@ -43,6 +44,9 @@ class TestMemento {
   }
 
   update(key, value) {
+    if (this.failNextUpdate) {
+      return Promise.reject(new Error('storage unavailable'));
+    }
     this.values.set(key, value);
     return Promise.resolve();
   }
@@ -168,4 +172,25 @@ test('offline time between processes is excluded from recovered duration', () =>
       ), 0);
     assert.equal(activeMs, 500);
   });
+});
+
+test('flush awaits queued writes and surfaces storage failures', async () => {
+  const errors = [];
+  const memento = new TestMemento();
+  const store = new DailyStateStore(memento, () => 1_000, (error) => errors.push(error));
+
+  store.startSession(1_000, 'durable-session');
+  await store.flush();
+  assert.equal(memento.values.get('sprintly.sessionTracking.v3').session.id, 'durable-session');
+  assert.deepEqual(errors, []);
+
+  memento.failNextUpdate = true;
+  store.pauseSession(1_100);
+  await assert.rejects(() => store.flush(), /storage unavailable/);
+  // The onError hook observed exactly one failure.
+  assert.equal(errors.length, 1);
+  // The failure is reported once; a later successful write clears it.
+  memento.failNextUpdate = false;
+  store.resumeSession(1_200);
+  await store.flush();
 });

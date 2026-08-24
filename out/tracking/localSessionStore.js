@@ -30,6 +30,7 @@ class LocalSessionStore {
         this.now = normalizedOptions.now ?? Date.now;
         this.storageKey = normalizedOptions.storageKey ?? DEFAULT_STORAGE_KEY;
         this.legacyStorageKey = normalizedOptions.legacyStorageKey ?? LEGACY_STORAGE_KEY;
+        this.onPersistError = normalizedOptions.onError;
         const parsed = parsePersistedStore(storage.get(this.storageKey), storage.get(this.legacyStorageKey));
         this.records = parsed.sessions.slice(0, this.retention);
         this.drafts = parsed.drafts;
@@ -217,6 +218,19 @@ class LocalSessionStore {
             return record;
         return this.complete(id, { endedAt: Math.max(record.startedAt, endedAt) });
     }
+    /**
+     * Await every queued workspace-state write. Critical lifecycle commands call
+     * this so success is only reported after state is durably persisted; a
+     * stored failure is rethrown once (audit Bug #13).
+     */
+    async flush() {
+        await this.persistQueue;
+        if (this.lastPersistError !== undefined) {
+            const error = this.lastPersistError;
+            this.lastPersistError = undefined;
+            throw error;
+        }
+    }
     dispose() { }
     get retention() {
         return this.retentionOverride ?? readRetention();
@@ -232,7 +246,17 @@ class LocalSessionStore {
         };
         this.persistQueue = this.persistQueue
             .then(() => this.storage.update(this.storageKey, snapshot))
-            .then(() => undefined, () => undefined);
+            .then(() => undefined, (error) => {
+            // Storage failures are captured and observable through flush() and
+            // the onError hook instead of being silently swallowed.
+            this.lastPersistError = error;
+            try {
+                this.onPersistError?.(error);
+            }
+            catch {
+                // Listener errors must never break persistence bookkeeping.
+            }
+        });
     }
 }
 exports.LocalSessionStore = LocalSessionStore;
