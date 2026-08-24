@@ -3,7 +3,7 @@ import { SESSION_PANEL_COMMAND, showStatusPanel } from './panels/sessionQuickPic
 import { SessionStats, SessionTracker } from './sessionTracker';
 import { AgentLogWatcher } from './tracking/agentLogWatcher';
 import { DailyStateStore, DailySprintlyState } from './tracking/dailyStateStore';
-import { isSprintlyEnabled } from './consentFlow';
+import { isSprintlyEnabled, STARTUP_PROMPT_MARKER } from './consentFlow';
 import {
   buildSessionHistoryRecord,
   LocalSessionStore,
@@ -22,6 +22,20 @@ import { getPrivacySettings } from './tracking/privacySettings';
 interface StatusBarUpdater {
   update(): void;
 }
+
+export interface LifecycleControls {
+  /** Authoritatively apply the sprintly.enabled master setting. */
+  handleMasterToggle(): void;
+}
+
+/** Every workspace-state key Sprintly owns, current and legacy. */
+const ALL_STORAGE_KEYS = [
+  'sprintly.sessionTracking.v3',
+  'sprintly.dailyTracking.v2',
+  'devstrava.localSessionStore.v1',
+  'sprintly.sessionHistory.v1',
+  STARTUP_PROMPT_MARKER,
+] as const;
 
 /**
  * Lifecycle commands must never interleave: a Start awaiting its baseline scan
@@ -46,7 +60,7 @@ export function registerCommands(
   agentLogWatcher: AgentLogWatcher,
   historyStore: LocalSessionStore,
   handoff = new WebsiteHandoffService(),
-): void {
+): LifecycleControls {
   const refresh = (): void => statusBar.update();
 
   const lifecycle = new LifecycleQueue();
@@ -168,6 +182,29 @@ export function registerCommands(
     void vscode.window.showInformationMessage('Sprintly session history cleared.');
   };
 
+  const eraseAllData = async (): Promise<void> => {
+    const confirmation = await vscode.window.showWarningMessage(
+      'Erase all Sprintly data in this workspace? This removes sessions, drafts, '
+      + 'agent-log cursors, and startup markers. It cannot be undone.',
+      { modal: true },
+      'Erase All Data',
+    );
+    if (confirmation !== 'Erase All Data') return;
+    // Halt observation first so nothing repersists after deletion.
+    await lifecycle.run(async () => {
+      recordingId = null;
+      tracker.reset();
+      sessionStore.eraseAllData();
+      historyStore.clear();
+      agentLogWatcher.stop();
+      refresh();
+    });
+    for (const key of ALL_STORAGE_KEYS) {
+      await context.workspaceState.update(key, undefined);
+    }
+    void vscode.window.showInformationMessage('All Sprintly local data erased.');
+  };
+
   const exportData = async (): Promise<void> => {
     const result = await handoff.savePayload(historyStore.export(), defaultExportFileName(), false);
     if (result) {
@@ -245,14 +282,35 @@ export function registerCommands(
     }
   };
 
+  const handleMasterToggle = (): void => {
+    if (isSprintlyEnabled()) {
+      // Re-enabling never silently restarts capture; the user starts a sprint.
+      return;
+    }
+    // Authoritative disable: no timer, draft writes, or log observation may
+    // outlive the master switch (audit Bug #5).
+    void lifecycle.run(async () => {
+      recordingId = null;
+      tracker.stop();
+      agentLogWatcher.stop();
+      if (sessionStore.get().session.isActive) {
+        const endedAt = Date.now();
+        sessionStore.stopSession(endedAt);
+        syncDraft(true, endedAt);
+        void vscode.window.showInformationMessage(
+          'Sprintly was disabled. The active session was ended and saved.',
+        );
+      }
+      refresh();
+    });
+  };
+
   context.subscriptions.push(
     tracker.onDidUpdate.event(() => {
       syncDraft();
-      refresh();
     }),
     sessionStore.onDidUpdate(() => {
       syncDraft();
-      refresh();
     }),
     vscode.commands.registerCommand('sprintly.startSession', start),
     vscode.commands.registerCommand('sprintly.stopSession', stop),
@@ -260,6 +318,7 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.resumeSession', resume),
     vscode.commands.registerCommand('sprintly.resetSession', reset),
     vscode.commands.registerCommand('sprintly.clearHistory', clearHistory),
+    vscode.commands.registerCommand('sprintly.eraseAllData', eraseAllData),
     vscode.commands.registerCommand('sprintly.exportData', exportData),
     vscode.commands.registerCommand('sprintly.importData', importData),
     vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite),
@@ -270,6 +329,8 @@ export function registerCommands(
     vscode.commands.registerCommand(SESSION_PANEL_COMMAND, () => showStatusPanel(tracker, sessionStore, historyStore)),
     vscode.commands.registerCommand('sprintly.openPanel', () => showStatusPanel(tracker, sessionStore, historyStore)),
   );
+
+  return { handleMasterToggle };
 }
 
 export { showStatusPanel } from './panels/sessionQuickPick';

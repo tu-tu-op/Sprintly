@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { getPrivacySettings } from './tracking/privacySettings';
 
 export const START_SPRINT_LABEL = '$(play) Start Sprint';
-const STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
+export const STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
 
 interface SessionStartChoice extends vscode.QuickPickItem {
   action: 'start' | 'dismiss';

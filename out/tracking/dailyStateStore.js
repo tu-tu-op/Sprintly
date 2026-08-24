@@ -89,6 +89,15 @@ class DailyStateStore {
         this.state = createEmptyState(cloneCursors(this.state.agentFileCursors));
         this.persistAndEmit();
     }
+    /**
+     * Erase every persisted field of this store, including agent-log cursors.
+     * Unlike resetSession (which keeps cursors to avoid replaying old logs),
+     * this is the privacy-complete deletion used by Erase All Data.
+     */
+    eraseAllData() {
+        this.state = createEmptyState();
+        this.persistAndEmit();
+    }
     isCapturing(timestamp = this.now()) {
         return sessionContainsTimestamp(this.state.session, timestamp);
     }

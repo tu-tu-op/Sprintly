@@ -135,6 +135,7 @@ async function showMetricDetail(metric, state, historyStore) {
         items = [
             item('edit', 'Manual', formatCompactDuration(coding.manualMs)),
             item('copilot', 'AI-assisted', formatCompactDuration(coding.aiAssistedMs)),
+            item('pulse', 'AI coding vs Hard Code', describeCodingComparison(coding.aiAssistedMs, coding.manualMs), `${makeCodingComparisonBar(coding.aiAssistedMs, coding.manualMs)}  █ AI coding · ▓ Hard Code`),
             item('wand', 'Automation', formatCompactDuration(coding.automationMs)),
             item('question', 'Unattributed bulk', formatCompactDuration(coding.unknownBulkMs)),
         ];
@@ -296,6 +297,24 @@ function describeCodingSplit(state) {
         `Automation ${formatCompactDuration(coding.automationMs)}`,
         `Unattributed ${formatCompactDuration(coding.unknownBulkMs)}`,
     ].join(' · ');
+}
+function describeCodingComparison(aiMs, hardCodeMs) {
+    const totalMs = Math.max(0, aiMs) + Math.max(0, hardCodeMs);
+    if (totalMs === 0) {
+        return 'AI coding 0% · Hard Code 0%';
+    }
+    const aiPercent = Math.round((Math.max(0, aiMs) / totalMs) * 100);
+    return `AI coding ${aiPercent}% · Hard Code ${100 - aiPercent}%`;
+}
+function makeCodingComparisonBar(aiMs, hardCodeMs, length = 24) {
+    const safeAiMs = Math.max(0, aiMs);
+    const safeHardCodeMs = Math.max(0, hardCodeMs);
+    const totalMs = safeAiMs + safeHardCodeMs;
+    if (totalMs === 0) {
+        return `[${'░'.repeat(length)}]`;
+    }
+    const aiSlots = Math.round((safeAiMs / totalMs) * length);
+    return `[${'█'.repeat(aiSlots)}${'▓'.repeat(length - aiSlots)}]`;
 }
 function getCodingTotals(state) {
     return {

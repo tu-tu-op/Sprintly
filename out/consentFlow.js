@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.START_SPRINT_LABEL = void 0;
+exports.STARTUP_PROMPT_MARKER = exports.START_SPRINT_LABEL = void 0;
 exports.requestSessionStart = requestSessionStart;
 exports.shouldPromptOnStartup = shouldPromptOnStartup;
 exports.isSprintlyEnabled = isSprintlyEnabled;
@@ -9,7 +9,7 @@ exports.runConsentFlow = runConsentFlow;
 const vscode = require("vscode");
 const privacySettings_1 = require("./tracking/privacySettings");
 exports.START_SPRINT_LABEL = '$(play) Start Sprint';
-const STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
+exports.STARTUP_PROMPT_MARKER = 'sprintly.startupPromptProcess';
 async function requestSessionStart() {
     const choice = await vscode.window.showQuickPick([
         {
@@ -45,10 +45,10 @@ async function shouldPromptOnStartup(context) {
     }
     const workspaceKey = getWorkspaceKey();
     const marker = `${process.pid}:${workspaceKey}`;
-    if (context.workspaceState.get(STARTUP_PROMPT_MARKER) === marker) {
+    if (context.workspaceState.get(exports.STARTUP_PROMPT_MARKER) === marker) {
         return false;
     }
-    await context.workspaceState.update(STARTUP_PROMPT_MARKER, marker);
+    await context.workspaceState.update(exports.STARTUP_PROMPT_MARKER, marker);
     return true;
 }
 function isSprintlyEnabled() {

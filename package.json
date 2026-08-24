@@ -15,6 +15,7 @@
       { "command": "sprintly.resumeSession",   "title": "Sprintly: Resume Session" },
       { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
       { "command": "sprintly.clearHistory",    "title": "Sprintly: Clear Session History" },
+      { "command": "sprintly.eraseAllData",    "title": "Sprintly: Erase All Local Data", "category": "Sprintly" },
       { "command": "sprintly.exportData",      "title": "Sprintly: Export DevStrava Data", "category": "Sprintly" },
       { "command": "sprintly.importData",      "title": "Sprintly: Import DevStrava Data", "category": "Sprintly" },
       { "command": "sprintly.connectWebsite",  "title": "Connect to DevStrava Website", "category": "Sprintly" },

@@ -29,19 +29,24 @@ function activate(context) {
     const buildFailureTracker = new buildFailureTracker_1.BuildFailureTracker(dailyStore);
     const statusBar = (0, statusBar_1.initStatusBar)(context, tracker, dailyStore);
     context.subscriptions.push(tracker, sessionActivityTracker, agentLogWatcher, buildFailureTracker, dailyStore, historyStore, handoff);
-    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
-        if (event.affectsConfiguration('sprintly.historyRetention')) {
-            historyStore.applyRetention();
-        }
-    }));
+    // Recover an interrupted session from the last durable observation so the
+    // finalized draft and DailyState boundaries agree (audit Bug #2).
     const interruptedId = dailyStore.getInterruptedSessionId();
     if (interruptedId) {
         historyStore.recoverInterruptedSession(interruptedId, dailyStore.get().session.endedAt ?? Date.now());
     }
-    (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore, handoff);
+    const lifecycleControls = (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore, handoff);
     // Privacy boundary: the agent-log watcher is constructed dormant. It only
     // discovers, reads, watches, or persists cursor state after the user
     // explicitly starts a sprint (see commands.ts start()).
+    context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('sprintly.historyRetention')) {
+            historyStore.applyRetention();
+        }
+        if (event.affectsConfiguration('sprintly.enabled')) {
+            lifecycleControls.handleMasterToggle();
+        }
+    }));
     context.subscriptions.push(vscode.commands.registerCommand('sprintly.devOpenScreen', async () => {
         const pick = await pickDevScreen();
         if (!pick) {

@@ -9,6 +9,14 @@ const localSessionStore_1 = require("./tracking/localSessionStore");
 const developerMetrics_1 = require("./tracking/developerMetrics");
 const websiteHandoff_1 = require("./tracking/websiteHandoff");
 const privacySettings_1 = require("./tracking/privacySettings");
+/** Every workspace-state key Sprintly owns, current and legacy. */
+const ALL_STORAGE_KEYS = [
+    'sprintly.sessionTracking.v3',
+    'sprintly.dailyTracking.v2',
+    'devstrava.localSessionStore.v1',
+    'sprintly.sessionHistory.v1',
+    consentFlow_1.STARTUP_PROMPT_MARKER,
+];
 /**
  * Lifecycle commands must never interleave: a Start awaiting its baseline scan
  * must not race another Start past the active-session guard (audit Bug #4).
@@ -140,6 +148,25 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
         historyStore.clear();
         void vscode.window.showInformationMessage('Sprintly session history cleared.');
     };
+    const eraseAllData = async () => {
+        const confirmation = await vscode.window.showWarningMessage('Erase all Sprintly data in this workspace? This removes sessions, drafts, '
+            + 'agent-log cursors, and startup markers. It cannot be undone.', { modal: true }, 'Erase All Data');
+        if (confirmation !== 'Erase All Data')
+            return;
+        // Halt observation first so nothing repersists after deletion.
+        await lifecycle.run(async () => {
+            recordingId = null;
+            tracker.reset();
+            sessionStore.eraseAllData();
+            historyStore.clear();
+            agentLogWatcher.stop();
+            refresh();
+        });
+        for (const key of ALL_STORAGE_KEYS) {
+            await context.workspaceState.update(key, undefined);
+        }
+        void vscode.window.showInformationMessage('All Sprintly local data erased.');
+    };
     const exportData = async () => {
         const result = await handoff.savePayload(historyStore.export(), (0, websiteHandoff_1.defaultExportFileName)(), false);
         if (result) {
@@ -195,13 +222,32 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
             void vscode.window.showInformationMessage('Aggregate-only leaderboard data is ready. Region and enrollment remain a website choice.');
         }
     };
+    const handleMasterToggle = () => {
+        if ((0, consentFlow_1.isSprintlyEnabled)()) {
+            // Re-enabling never silently restarts capture; the user starts a sprint.
+            return;
+        }
+        // Authoritative disable: no timer, draft writes, or log observation may
+        // outlive the master switch (audit Bug #5).
+        void lifecycle.run(async () => {
+            recordingId = null;
+            tracker.stop();
+            agentLogWatcher.stop();
+            if (sessionStore.get().session.isActive) {
+                const endedAt = Date.now();
+                sessionStore.stopSession(endedAt);
+                syncDraft(true, endedAt);
+                void vscode.window.showInformationMessage('Sprintly was disabled. The active session was ended and saved.');
+            }
+            refresh();
+        });
+    };
     context.subscriptions.push(tracker.onDidUpdate.event(() => {
         syncDraft();
-        refresh();
     }), sessionStore.onDidUpdate(() => {
         syncDraft();
-        refresh();
-    }), vscode.commands.registerCommand('sprintly.startSession', start), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.clearHistory', clearHistory), vscode.commands.registerCommand('sprintly.exportData', exportData), vscode.commands.registerCommand('sprintly.importData', importData), vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite), vscode.commands.registerCommand('sprintly.shareSession', shareSession), vscode.commands.registerCommand('sprintly.syncHistory', syncHistory), vscode.commands.registerCommand('sprintly.joinLeaderboard', joinLeaderboard), vscode.commands.registerCommand('sprintly.saveSession', exportData), vscode.commands.registerCommand(sessionQuickPick_1.SESSION_PANEL_COMMAND, () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore)), vscode.commands.registerCommand('sprintly.openPanel', () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore)));
+    }), vscode.commands.registerCommand('sprintly.startSession', start), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.clearHistory', clearHistory), vscode.commands.registerCommand('sprintly.eraseAllData', eraseAllData), vscode.commands.registerCommand('sprintly.exportData', exportData), vscode.commands.registerCommand('sprintly.importData', importData), vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite), vscode.commands.registerCommand('sprintly.shareSession', shareSession), vscode.commands.registerCommand('sprintly.syncHistory', syncHistory), vscode.commands.registerCommand('sprintly.joinLeaderboard', joinLeaderboard), vscode.commands.registerCommand('sprintly.saveSession', exportData), vscode.commands.registerCommand(sessionQuickPick_1.SESSION_PANEL_COMMAND, () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore)), vscode.commands.registerCommand('sprintly.openPanel', () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore)));
+    return { handleMasterToggle };
 }
 var sessionQuickPick_2 = require("./panels/sessionQuickPick");
 Object.defineProperty(exports, "showStatusPanel", { enumerable: true, get: function () { return sessionQuickPick_2.showStatusPanel; } });
