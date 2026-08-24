@@ -2,13 +2,21 @@ import * as vscode from 'vscode';
 import { CodingCategory, DailyStateStore } from './dailyStateStore';
 import { isTelemetryCategoryEnabled } from './privacySettings';
 
-export const SESSION_GAP_MS = 900_000;
+/**
+ * Maximum inter-heartbeat gap fully credited as engaged coding time. The
+ * heartbeat interval is two minutes during continuous activity, so gaps at or
+ * under twice that plausibly represent ongoing work. Anything longer is an
+ * explicit idle period and credits nothing: fifteen idle minutes can no longer
+ * be recorded as coding (audit Bug #6).
+ */
+export const ACTIVE_GAP_CREDIT_MS = 240_000;
 const HEARTBEAT_INTERVAL_MS = 120_000;
 
 interface Heartbeat {
   uri: string;
   time: number;
-  category: CodingCategory;
+  /** null marks a neutral anchor with no authored-edit evidence. */
+  category: CodingCategory | null;
 }
 
 export class SessionActivityTracker implements vscode.Disposable {
@@ -81,9 +89,11 @@ export class SessionActivityTracker implements vscode.Disposable {
 
   private recordForcedHeartbeat(uri: string, now: number): void {
     const previous = this.lastHeartbeats.get(uri);
-    // ASSUMPTION: a save or first activation without a classified edit is hardcode,
-    // because the required heartbeat must carry one of the two duration categories.
-    const category = this.lastEditCategories.get(uri) ?? previous?.category ?? 'manual';
+    // A save or editor switch extends an already-established category for the
+    // document, but never fabricates one: without classified edit evidence the
+    // heartbeat is a neutral anchor that attributes no duration (audit Bug #7
+    // false-positive review).
+    const category = this.lastEditCategories.get(uri) ?? previous?.category ?? null;
     this.forceNextHeartbeat.delete(uri);
     this.commitHeartbeat({ uri, time: now, category });
   }
@@ -93,9 +103,11 @@ export class SessionActivityTracker implements vscode.Disposable {
       return;
     }
     const previous = this.lastSessionHeartbeat;
-    if (previous && previous.category === heartbeat.category) {
+    if (previous && previous.category !== null && previous.category === heartbeat.category) {
       const rawGap = heartbeat.time - previous.time;
-      if (rawGap >= 0 && rawGap <= SESSION_GAP_MS) {
+      // Bounded engaged-time credit: only a short, plausibly continuous gap
+      // counts; longer gaps are idle and contribute nothing.
+      if (rawGap >= 0 && rawGap <= ACTIVE_GAP_CREDIT_MS) {
         this.store.addSessionDuration(heartbeat.category, rawGap, heartbeat.time);
       }
     }

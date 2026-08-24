@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SessionTracker = void 0;
 exports.createEmptySessionStats = createEmptySessionStats;
+exports.estimateChangedLines = estimateChangedLines;
 const vscode = require("vscode");
 const terminalCommands_1 = require("./tracking/terminalCommands");
 const developerMetrics_1 = require("./tracking/developerMetrics");
@@ -128,7 +129,7 @@ class SessionTracker {
             if (!this.stats.isRecording || this.stats.isPaused || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
                 return;
             this.stats.fileEdits++;
-            this.stats.linesChanged += e.contentChanges.reduce((n, c) => n + Math.abs(c.text.split('\n').length - 1), 0);
+            this.stats.linesChanged += e.contentChanges.reduce((n, c) => n + estimateChangedLines(c.text, c.range.start.line, c.range.end.line), 0);
             this.stats.activeFiles.add(e.document.fileName);
         }), vscode.workspace.onDidSaveTextDocument(() => {
             if (!this.stats.isRecording || this.stats.isPaused || !(0, privacySettings_1.isTelemetryCategoryEnabled)('codingActivity'))
@@ -161,4 +162,21 @@ class SessionTracker {
     }
 }
 exports.SessionTracker = SessionTracker;
+function countLineBreaks(text) {
+    let count = 0;
+    for (let index = 0; index < text.length; index++) {
+        if (text.charCodeAt(index) === 10)
+            count++;
+    }
+    return count;
+}
+/**
+ * Inserted/deleted changed-line estimate (audit Bug #8): inserted line breaks
+ * plus structural lines removed by the replacement range. Same-line edits add
+ * zero; deletions and multi-line replacements are now counted. The loop avoids
+ * allocating a large split array for huge pastes.
+ */
+function estimateChangedLines(text, startLine, endLine) {
+    return countLineBreaks(text) + Math.max(0, endLine - startLine);
+}
 //# sourceMappingURL=sessionTracker.js.map

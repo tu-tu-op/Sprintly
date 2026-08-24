@@ -56,6 +56,7 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
 const { DailyStateStore } = require('../out/tracking/dailyStateStore');
 const { SessionActivityTracker, classifyChange } = require('../out/tracking/sessionActivityTracker');
 const { BuildFailureTracker } = require('../out/tracking/buildFailureTracker');
+const { estimateChangedLines } = require('../out/sessionTracker');
 Module._load = originalLoad;
 
 class TestMemento {
@@ -95,16 +96,19 @@ test('activity duration does not bridge pause or stopped periods', () => {
     now = 1_800;
     saveDocument.fire(activeDocument);
     store.resumeSession(2_000);
+    // After the lifecycle boundary there is no classified edit evidence, so
+    // these saves are neutral anchors and attribute no duration.
     now = 2_100;
     saveDocument.fire(activeDocument);
     now = 2_300;
     saveDocument.fire(activeDocument);
-    assert.equal(store.get().session.hardcodeMs, 400);
+    assert.equal(store.get().session.hardcodeMs, 200);
+    assert.equal(store.get().session.unknownBulkMs, 0);
 
     store.stopSession(2_400);
     now = 2_600;
     saveDocument.fire(activeDocument);
-    assert.equal(store.get().session.hardcodeMs, 400);
+    assert.equal(store.get().session.hardcodeMs, 200);
     tracker.dispose();
   } finally {
     Date.now = originalNow;
@@ -120,7 +124,19 @@ test('document changes distinguish manual typing from unattributed bulk edits', 
   assert.equal(classifyChange('formatted', 0, 'automation'), 'automation');
 });
 
-test('accepted inline completion increments the session vibe duration', () => {
+test('lines changed counts inserted and deleted lines, not just newline characters', () => {
+  // Same-line single-character edit: no line count change.
+  assert.equal(estimateChangedLines('a', 3, 3), 0);
+  // Multi-line paste: inserted breaks counted.
+  assert.equal(estimateChangedLines('a\nb\nc', 0, 0), 2);
+  // Deletion collapsing five lines: now visible.
+  assert.equal(estimateChangedLines('', 10, 15), 5);
+  // Replacement of two lines with three: two inserted breaks plus two
+  // removed structural lines (git-style insertion+deletion estimate).
+  assert.equal(estimateChangedLines('x\ny\nz', 1, 3), 4);
+});
+
+test('bulk multi-character edits stay unattributed (no live AI producer)', () => {
   const originalNow = Date.now;
   let now = 3_000;
   Date.now = () => now;
@@ -138,8 +154,76 @@ test('accepted inline completion increments the session vibe duration', () => {
     now = 3_350;
     saveDocument.fire(activeDocument);
 
+    // No provider-attribution integration exists, so this time must land in
+    // unknown-bulk - never in an AI/vibe bucket that was not observed.
     assert.equal(store.get().session.unknownBulkMs, 250);
     assert.equal(store.get().session.hardcodeMs, 0);
+    assert.equal(store.get().session.aiAssistedMs, 0);
+    assert.equal(store.get().session.vibecodeMs, 0);
+    tracker.dispose();
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('engaged-time credit stops at the active gap boundary and never bridges idle time', () => {
+  const originalNow = Date.now;
+  let now = 10_000;
+  Date.now = () => now;
+  try {
+    const store = new DailyStateStore(new TestMemento(), () => now);
+    store.startSession(now, 'idle-session');
+    const tracker = new SessionActivityTracker(store);
+    const activeDocument = document('file:///workspace/idle.ts');
+
+    // First keystroke establishes the manual category.
+    now = 10_100;
+    changeDocument.fire({
+      document: activeDocument,
+      contentChanges: [{ text: 'a', rangeLength: 0 }],
+    });
+
+    // Continuous typing resumes exactly at the credit boundary (4 minutes).
+    now = 10_100 + 240_000;
+    changeDocument.fire({
+      document: activeDocument,
+      contentChanges: [{ text: 'b', rangeLength: 0 }],
+    });
+    assert.equal(store.get().session.hardcodeMs, 240_000);
+
+    // A long idle period (15 more minutes) is followed by one keystroke.
+    now += 900_000;
+    changeDocument.fire({
+      document: activeDocument,
+      contentChanges: [{ text: 'c', rangeLength: 0 }],
+    });
+    // Idle time contributes nothing beyond the already-credited window.
+    assert.equal(store.get().session.hardcodeMs, 240_000);
+
+    tracker.dispose();
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('a save without classified edits is not claimed as manual work', () => {
+  const originalNow = Date.now;
+  let now = 40_000;
+  Date.now = () => now;
+  try {
+    const store = new DailyStateStore(new TestMemento(), () => now);
+    store.startSession(now, 'save-only-session');
+    const tracker = new SessionActivityTracker(store);
+    const untouchedDocument = document('file:///workspace/untouched.ts');
+
+    now = 41_000;
+    saveDocument.fire(untouchedDocument);
+    now = 42_000;
+    changeEditor.fire({ document: untouchedDocument });
+
+    // No duration may be invented for a document with no observed edits.
+    assert.equal(store.get().session.hardcodeMs, 0);
+    assert.equal(store.get().session.unknownBulkMs, 0);
     tracker.dispose();
   } finally {
     Date.now = originalNow;

@@ -153,7 +153,7 @@ export class SessionTracker implements vscode.Disposable {
         if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
         this.stats.fileEdits++;
         this.stats.linesChanged += e.contentChanges.reduce(
-          (n, c) => n + Math.abs(c.text.split('\n').length - 1), 0);
+          (n, c) => n + estimateChangedLines(c.text, c.range.start.line, c.range.end.line), 0);
         this.stats.activeFiles.add(e.document.fileName);
       }),
       vscode.workspace.onDidSaveTextDocument(() => {
@@ -187,4 +187,22 @@ export class SessionTracker implements vscode.Disposable {
     this.reset();
     this.onDidUpdate.dispose();
   }
+}
+
+function countLineBreaks(text: string): number {
+  let count = 0;
+  for (let index = 0; index < text.length; index++) {
+    if (text.charCodeAt(index) === 10) count++;
+  }
+  return count;
+}
+
+/**
+ * Inserted/deleted changed-line estimate (audit Bug #8): inserted line breaks
+ * plus structural lines removed by the replacement range. Same-line edits add
+ * zero; deletions and multi-line replacements are now counted. The loop avoids
+ * allocating a large split array for huge pastes.
+ */
+export function estimateChangedLines(text: string, startLine: number, endLine: number): number {
+  return countLineBreaks(text) + Math.max(0, endLine - startLine);
 }
