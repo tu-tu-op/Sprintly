@@ -7,11 +7,13 @@ export type ParsedJsonLine = Record<string, unknown>;
 
 export interface AgentLogParseContext {
   copilotRequestTimestamps?: Array<number | null>;
+  /** Parallel to copilotRequestTimestamps: whether each request is Copilot. */
+  copilotRequestIsCopilot?: Array<boolean | null>;
 }
 
 export type TokenUsage =
   | ({ kind: 'claudeCode' } & ClaudeTokenStats)
-  | { kind: 'codex'; total: number }
+  | { kind: 'codex'; total: number; /** True when total comes from a cumulative counter. */ cumulative?: boolean }
   | ({ kind: 'githubCopilot' } & CopilotTokenStats);
 
 export interface AgentLogSource {
@@ -151,8 +153,13 @@ function extractCodexUsage(line: ParsedJsonLine): TokenUsage | null {
   ];
 
   if (type === 'token_count' || payloadType === 'token_count') {
-    // Prefer per-turn usage when available; total_token_usage is cumulative in newer logs.
-    candidates.unshift(info?.last_token_usage, info?.total_token_usage, payload, line);
+    // Prefer per-turn usage; total_token_usage is a cumulative counter in
+    // newer logs and is marked so the watcher can apply deltas (audit Bug #10).
+    const cumulative = extractTokenTotal(info?.total_token_usage);
+    if (cumulative !== null) {
+      return { kind: 'codex', total: cumulative, cumulative: true };
+    }
+    candidates.unshift(info?.last_token_usage, payload, line);
   }
 
   for (const candidate of candidates) {
@@ -318,6 +325,8 @@ function expandCopilotEntries(
 ): ParsedJsonLine[] {
   const timestamps = context.copilotRequestTimestamps ?? [];
   context.copilotRequestTimestamps = timestamps;
+  const copilotFlags = context.copilotRequestIsCopilot ?? [];
+  context.copilotRequestIsCopilot = copilotFlags;
   const kind = readNonNegativeNumber(line.kind);
   const keyPath = Array.isArray(line.k) ? line.k : [];
 
@@ -325,18 +334,22 @@ function expandCopilotEntries(
     const snapshot = asRecord(line.v);
     const requests = Array.isArray(snapshot?.requests) ? snapshot.requests : [];
     timestamps.length = 0;
-    return requests.flatMap((request) => appendCopilotRequest(request, timestamps));
+    copilotFlags.length = 0;
+    return requests.flatMap((request) => appendCopilotRequest(request, timestamps, copilotFlags));
   }
 
   if (kind === 2 && keyPath.length === 1 && keyPath[0] === 'requests' && Array.isArray(line.v)) {
-    return line.v.flatMap((request) => appendCopilotRequest(request, timestamps));
+    return line.v.flatMap((request) => appendCopilotRequest(request, timestamps, copilotFlags));
   }
 
   if (kind === 1 && keyPath.length === 3 && keyPath[0] === 'requests') {
     const requestIndex = typeof keyPath[1] === 'number' ? keyPath[1] : Number(keyPath[1]);
     const metric = keyPath[2];
     const timestamp = Number.isInteger(requestIndex) ? timestamps[requestIndex] : null;
-    if (timestamp === null || timestamp === undefined || typeof metric !== 'string') {
+    // Token patches only count for requests with verified Copilot identity;
+    // another chat agent's usage in the same file must not inflate totals.
+    const isCopilot = Number.isInteger(requestIndex) ? copilotFlags[requestIndex] === true : false;
+    if (timestamp === null || timestamp === undefined || typeof metric !== 'string' || !isCopilot) {
       return [];
     }
     const synthetic: ParsedJsonLine = { timestamp };
@@ -358,20 +371,30 @@ function expandCopilotEntries(
 function appendCopilotRequest(
   value: unknown,
   timestamps: Array<number | null>,
+  copilotFlags: Array<boolean | null>,
 ): ParsedJsonLine[] {
   const request = asRecord(value);
   if (!request) {
     timestamps.push(null);
+    copilotFlags.push(null);
     return [];
   }
   const timestamp = extractCommonTimestamp(request);
   timestamps.push(timestamp);
+  // Token and credit extraction is gated on verified Copilot identity so
+  // another chat agent's usage in the same session file cannot inflate
+  // Copilot totals (audit Bug #11).
+  const copilotIdentity = isCopilotPrompt(request);
+  copilotFlags.push(copilotIdentity);
+  const readIf = (field: string): number => copilotIdentity
+    ? readNonNegativeNumber(request[field]) ?? 0
+    : 0;
   return [{
     ...request,
-    __sprintlyCopilotPrompt: isCopilotPrompt(request),
-    __sprintlyCopilotInput: readNonNegativeNumber(request.promptTokens) ?? 0,
-    __sprintlyCopilotOutput: readNonNegativeNumber(request.completionTokens) ?? 0,
-    __sprintlyCopilotCredits: readNonNegativeNumber(request.copilotCredits) ?? 0,
+    __sprintlyCopilotPrompt: copilotIdentity,
+    __sprintlyCopilotInput: readIf('promptTokens'),
+    __sprintlyCopilotOutput: readIf('completionTokens'),
+    __sprintlyCopilotCredits: readIf('copilotCredits'),
   }];
 }
 

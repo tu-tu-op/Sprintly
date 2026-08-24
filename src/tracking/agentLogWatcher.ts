@@ -17,6 +17,14 @@ import {
 import { isTelemetryCategoryEnabled } from './privacySettings';
 
 const POLL_INTERVAL_MS = 5_000;
+/** Full directory rediscovery runs at most once per minute during polling. */
+const REDISCOVERY_POLL_INTERVAL = 12;
+/** An unterminated trailing line larger than this is discarded, not buffered. */
+const MAX_UNTERMINATED_LINE_BYTES = 4 * 1024 * 1024;
+/** Consumed-prefix reconstruction for Copilot indices is skipped beyond this. */
+const MAX_PREFIX_REBUILD_BYTES = 8 * 1024 * 1024;
+/** In-memory per-file caches are trimmed to this many entries. */
+const MAX_CACHED_FILES = 512;
 
 interface WatchedDirectory {
   source: AgentLogSource;
@@ -47,11 +55,15 @@ export class AgentLogWatcher implements vscode.Disposable {
   private readonly watchedDirectoryKeys = new Set<string>();
   private readonly fileWorkspaces = new Map<string, FileWorkspaceState>();
   private readonly fileParseContexts = new Map<string, AgentLogParseContext>();
+  /** Last seen cumulative Codex token total per file, for delta accounting. */
+  private readonly codexCumulativeTotals = new Map<string, number>();
   private pollTimer: ReturnType<typeof setInterval> | undefined;
   private scanPromise: Promise<void> | undefined;
   private scanRequested = false;
   private disposed = false;
   private startPromise: Promise<void> | undefined;
+  private pollCount = 0;
+  private rediscoveryDue = true;
   /**
    * Consent boundary: agent-log discovery, reading, parsing, watching, and
    * cursor persistence may only run after an explicit user Start (or an
@@ -83,6 +95,8 @@ export class AgentLogWatcher implements vscode.Disposable {
   stop(): void {
     this.monitoring = false;
     this.startPromise = undefined;
+    this.pollCount = 0;
+    this.rediscoveryDue = true;
     if (this.pollTimer) {
       clearInterval(this.pollTimer);
       this.pollTimer = undefined;
@@ -94,6 +108,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     this.watchedDirectoryKeys.clear();
     this.fileWorkspaces.clear();
     this.fileParseContexts.clear();
+    this.codexCumulativeTotals.clear();
   }
 
   async scanNow(): Promise<void> {
@@ -109,6 +124,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     await this.requestScan();
     this.pollTimer = setInterval(() => {
       if (this.monitoring && !this.disposed) {
+        this.pollCount++;
         void this.requestScan();
       }
     }, POLL_INTERVAL_MS);
@@ -138,6 +154,9 @@ export class AgentLogWatcher implements vscode.Disposable {
 
   private watchDirectory(directory: string): void {
     const onChange = (): void => {
+      // A filesystem event schedules the next targeted rediscovery; it no
+      // longer forces a full-tree enumeration on every event.
+      this.rediscoveryDue = true;
       void this.requestScan();
     };
     try {
@@ -176,8 +195,12 @@ export class AgentLogWatcher implements vscode.Disposable {
 
   private async scanAllFiles(): Promise<void> {
     // Copilot creates chatSessions lazily on the first chat in a workspace.
-    // Rediscovery lets a session that starts after Sprintly still be captured.
-    await this.discoverDirectories();
+    // Rediscovery is throttled to at most once per minute (and on filesystem
+    // events) instead of enumerating every watched tree on every poll tick.
+    if (this.rediscoveryDue || this.pollCount % REDISCOVERY_POLL_INTERVAL === 0) {
+      this.rediscoveryDue = false;
+      await this.discoverDirectories();
+    }
     for (const watched of this.watchedDirectories) {
       const files = await findLogFiles(watched.directory, watched.source.id);
       for (const filePath of files) {
@@ -201,6 +224,9 @@ export class AgentLogWatcher implements vscode.Disposable {
       startOffset = 0;
       this.fileParseContexts.delete(filePath);
       this.fileWorkspaces.delete(filePath);
+      // Rotation/truncation invalidates cumulative counters for this file;
+      // replayed totals must restart from zero rather than produce deltas.
+      this.codexCumulativeTotals.delete(filePath);
     }
     if (stat.size === startOffset || stat.size === 0) {
       return;
@@ -222,13 +248,20 @@ export class AgentLogWatcher implements vscode.Disposable {
         const combined = remainder.length === 0 ? bytes : Buffer.concat([remainder, bytes]);
         const finalNewline = combined.lastIndexOf(0x0a);
         if (finalNewline < 0) {
-          remainder = combined;
+          if (combined.length > MAX_UNTERMINATED_LINE_BYTES) {
+            // A pathological unterminated line is dropped and its bytes are
+            // consumed so the cursor can still advance.
+            processedBytes += combined.length;
+            remainder = Buffer.alloc(0);
+          } else {
+            remainder = combined;
+          }
           continue;
         }
         const complete = combined.subarray(0, finalNewline + 1);
         remainder = combined.subarray(finalNewline + 1);
         processedBytes += complete.length;
-        this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace, parseContext);
+        this.processCompleteLines(source, complete.toString('utf8'), batch, fileWorkspace, parseContext, filePath);
       }
     } catch {
       return;
@@ -237,7 +270,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     if (remainder.length > 0) {
       const parsed = parseJsonLine(remainder.toString('utf8').replace(/\r$/, ''));
       if (parsed) {
-        this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext);
+        this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext, filePath);
         processedBytes += remainder.length;
       }
     }
@@ -266,6 +299,7 @@ export class AgentLogWatcher implements vscode.Disposable {
     batch: ParsedBatch,
     fileWorkspace: FileWorkspaceState,
     parseContext: AgentLogParseContext,
+    filePath: string,
   ): void {
     for (const line of text.split('\n')) {
       const trimmed = line.replace(/\r$/, '').trim();
@@ -274,7 +308,7 @@ export class AgentLogWatcher implements vscode.Disposable {
       }
       const parsed = parseJsonLine(trimmed);
       if (parsed) {
-        this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext);
+        this.processSourceLine(source, parsed, batch, fileWorkspace, parseContext, filePath);
       }
     }
   }
@@ -285,12 +319,13 @@ export class AgentLogWatcher implements vscode.Disposable {
     batch: ParsedBatch,
     fileWorkspace: FileWorkspaceState,
     parseContext: AgentLogParseContext,
+    filePath: string,
   ): void {
     const entries = source.expandEntries
       ? source.expandEntries(parsed, parseContext)
       : [parsed];
     for (const entry of entries) {
-      this.processParsedLine(source, entry, batch, fileWorkspace);
+      this.processParsedLine(source, entry, batch, fileWorkspace, filePath);
     }
   }
 
@@ -299,11 +334,13 @@ export class AgentLogWatcher implements vscode.Disposable {
     parsed: Record<string, unknown>,
     batch: ParsedBatch,
     fileWorkspace: FileWorkspaceState,
+    filePath: string,
   ): void {
     if (!isTelemetryCategoryEnabled('agentUsage')) {
       return;
     }
     this.updateFileWorkspace(source, parsed, fileWorkspace);
+    this.trimFileCache(this.fileWorkspaces);
     if (!fileWorkspace.matches) {
       return;
     }
@@ -312,6 +349,15 @@ export class AgentLogWatcher implements vscode.Disposable {
     // assigned to a session, which prevents old or schema-unknown lines from inflating totals.
     if (timestamp === null) {
       return;
+    }
+    // Cumulative counters must advance even for entries that fall outside the
+    // session window; otherwise replayed totals would inflate later deltas.
+    let usage = source.extractUsage(parsed);
+    if (usage && usage.kind === 'codex' && usage.cumulative === true) {
+      const previous = this.codexCumulativeTotals.get(filePath) ?? 0;
+      const delta = usage.total > previous ? usage.total - previous : 0;
+      this.codexCumulativeTotals.set(filePath, usage.total);
+      usage = delta > 0 ? { kind: 'codex', total: delta } : null;
     }
     const sessionId = this.store.getSessionIdForTimestamp(timestamp);
     if (!sessionId || (batch.sessionId && batch.sessionId !== sessionId)) {
@@ -324,9 +370,18 @@ export class AgentLogWatcher implements vscode.Disposable {
     if (source.isPromptEntry(parsed)) {
       batch.promptCount += 1;
     }
-    const usage = source.extractUsage(parsed);
     if (usage) {
       addUsage(batch, usage);
+    }
+  }
+
+  private trimFileCache(map: Map<string, unknown>): void {
+    while (map.size > MAX_CACHED_FILES) {
+      const oldest = map.keys().next();
+      if (oldest.done) {
+        return;
+      }
+      map.delete(oldest.value);
     }
   }
 
@@ -386,7 +441,13 @@ export class AgentLogWatcher implements vscode.Disposable {
     }
     const context: AgentLogParseContext = {};
     this.fileParseContexts.set(filePath, context);
+    this.trimFileCache(this.fileParseContexts);
     if (!source.expandEntries || startOffset <= 0) {
+      return context;
+    }
+    // Rebuilding request indices from an already-consumed prefix is bounded:
+    // a huge consumed prefix is skipped rather than reread in full.
+    if (startOffset > MAX_PREFIX_REBUILD_BYTES) {
       return context;
     }
 

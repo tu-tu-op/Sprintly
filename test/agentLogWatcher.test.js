@@ -345,6 +345,100 @@ test('workspace-scoped GitHub Copilot Chat requests and token patches are captur
   }
 });
 
+test('cumulative Codex token totals are delta-accounted, never re-added', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sprintly-codex-delta-'));
+  const workspacePath = path.join(directory, 'workspace');
+  const filePath = path.join(directory, 'rollout-cumulative.jsonl');
+  fs.mkdirSync(workspacePath);
+  const source = {
+    id: 'codex',
+    getLogDirs: () => [directory],
+    extractWorkspacePath: () => null,
+    logsAreWorkspaceScoped: true,
+    isPromptEntry: () => false,
+    extractTimestamp: (line) => typeof line.timestamp === 'number' ? line.timestamp : null,
+    // Emits the cumulative counter shape seen in newer rollout logs.
+    extractUsage: (line) => typeof line.cumulativeTotal === 'number'
+      ? { kind: 'codex', total: line.cumulativeTotal, cumulative: true }
+      : null,
+  };
+
+  try {
+    const store = new DailyStateStore(new TestMemento(), () => 1_000);
+    store.startSession(1_000, 'delta-session');
+    const watcher = new AgentLogWatcher(store, [source], [workspacePath]);
+    await watcher.start();
+
+    appendLines(filePath, [
+      JSON.stringify({ timestamp: 1_100, cumulativeTotal: 100 }),
+      JSON.stringify({ timestamp: 1_200, cumulativeTotal: 150 }),
+      JSON.stringify({ timestamp: 1_300, cumulativeTotal: 175 }),
+    ]);
+    await watcher.scanNow();
+    // Additive counting would report 425; deltas report the true 175.
+    assert.deepEqual(store.get().tokenStats.codex, { total: 175 });
+    watcher.dispose();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('usage from non-Copilot chat agents is excluded from Copilot totals', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sprintly-copilot-iso-'));
+  const workspacePath = path.join(directory, 'workspace');
+  const appData = path.join(directory, 'appdata');
+  const storage = path.join(appData, 'Code', 'User', 'workspaceStorage', 'workspace-id');
+  const chatSessions = path.join(storage, 'chatSessions');
+  const previousAppData = process.env.APPDATA;
+
+  try {
+    fs.mkdirSync(workspacePath);
+    fs.mkdirSync(chatSessions, { recursive: true });
+    fs.writeFileSync(path.join(storage, 'workspace.json'), JSON.stringify({
+      folder: pathToFileURL(workspacePath).href,
+    }));
+    process.env.APPDATA = appData;
+
+    const store = new DailyStateStore(new TestMemento(), () => 1_000);
+    store.startSession(1_000, 'copilot-isolation-session');
+    const watcher = new AgentLogWatcher(store, [GITHUB_COPILOT_SOURCE], [workspacePath]);
+    await watcher.start();
+
+    appendLines(path.join(chatSessions, 'mixed.jsonl'), [
+      JSON.stringify({
+        kind: 2,
+        k: ['requests'],
+        v: [{
+          requestId: 'other-agent',
+          timestamp: 1_100,
+          agent: { extensionId: { value: 'acme.other-agent' } },
+          modelId: 'acme/supermodel',
+          message: { text: 'A different assistant handled this' },
+          promptTokens: 5_000,
+          completionTokens: 9_000,
+          copilotCredits: 10,
+        }],
+      }),
+      JSON.stringify({ kind: 1, k: ['requests', 0, 'promptTokens'], v: 5_000 }),
+      JSON.stringify({ kind: 1, k: ['requests', 0, 'completionTokens'], v: 9_000 }),
+      JSON.stringify({ kind: 1, k: ['requests', 0, 'copilotCredits'], v: 10 }),
+    ]);
+    await watcher.scanNow();
+    watcher.dispose();
+
+    const state = store.get();
+    assert.equal(state.tokenStats.githubCopilot, null);
+    assert.equal(state.agentPrompts.githubCopilot, 0);
+  } finally {
+    if (previousAppData === undefined) {
+      delete process.env.APPDATA;
+    } else {
+      process.env.APPDATA = previousAppData;
+    }
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('Copilot chat storage created after Sprintly starts is discovered', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sprintly-copilot-lazy-'));
   const workspacePath = path.join(directory, 'workspace');
