@@ -8,7 +8,7 @@ import {
   DeveloperMetricInput,
 } from '../tracking/developerMetrics';
 import { getPrivacySettings } from '../tracking/privacySettings';
-import { LocalSessionStore } from '../tracking/localSessionStore';
+import { LocalSessionStore, SessionHistoryRecord } from '../tracking/localSessionStore';
 
 export const SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 
@@ -41,6 +41,17 @@ export async function showStatusPanel(
   let sessionState = sessionStore.get();
   const quickPick = vscode.window.createQuickPick<SessionPanelItem>();
 
+  // Canonical hydration: after a reload the volatile tracker is blank while a
+  // finalized record exists. The panel then renders that record instead of
+  // hiding activity or recomputing signals from zeroed counters.
+  const latestRecord = (): SessionHistoryRecord | null => {
+    if (trackerStats.isRecording || !historyStore) {
+      return null;
+    }
+    const currentId = sessionState.session.id;
+    return (currentId ? historyStore.get(currentId) : null) ?? historyStore.list()[0] ?? null;
+  };
+
   quickPick.ignoreFocusOut = false;
   quickPick.matchOnDescription = false;
   quickPick.matchOnDetail = false;
@@ -50,10 +61,10 @@ export async function showStatusPanel(
   ];
 
   const render = (): void => {
-    const summary = buildSessionPanelSummary(trackerStats, sessionState);
+    const summary = buildSessionPanelSummary(trackerStats, sessionState, latestRecord());
     quickPick.title = `$(pulse) Sprintly · ${summary.scope}`;
     quickPick.placeholder = panelPlaceholder(summary.status);
-    quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore);
+    quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore, latestRecord());
   };
 
   const trackerSubscription = tracker.onDidUpdate.event((next) => {
@@ -86,7 +97,7 @@ export async function showStatusPanel(
     }
     quickPick.hide();
     if (selected.metric) {
-      void showMetricDetail(selected.metric, sessionStore.get(), historyStore);
+      void showMetricDetail(selected.metric, sessionStore.get(), historyStore, latestRecord());
       return;
     }
     if (selected.action) {
@@ -107,6 +118,7 @@ export async function showStatusPanel(
 export function buildSessionPanelSummary(
   trackerStats: Readonly<SessionStats>,
   state: Readonly<DailySprintlyState>,
+  record?: SessionHistoryRecord | null,
 ): SessionPanelSummary {
   const hasSession = state.session.id !== null;
   const isActive = trackerStats.isRecording && state.session.isActive;
@@ -114,23 +126,29 @@ export function buildSessionPanelSummary(
   const status = isActive
     ? trackerStats.isPaused ? 'Paused' : 'In progress'
     : hasSession ? 'Completed' : 'Ready';
-  const durationMs = trackerStats.startedAt
+  // Live sessions use the tracker clock; a stored session uses its finalized
+  // record so durations never disagree between panel and history.
+  const durationMs = trackerStats.startedAt && isActive
     ? trackerStats.durationSeconds * 1_000
-    : calculateStoredDuration(state);
+    : record?.activeDurationMs ?? calculateStoredDuration(state);
 
-  const profile = deriveDeveloperProfile(buildMetricInput(trackerStats, state, durationMs));
-  const metrics = calculateDeveloperMetrics(buildMetricInput(trackerStats, state, durationMs));
+  const metricsInput = record && !isActive
+    ? metricInputFromRecord(record, durationMs)
+    : buildMetricInput(trackerStats, state, durationMs);
+  const profile = deriveDeveloperProfile(metricsInput);
+  const metrics = calculateDeveloperMetrics(metricsInput);
+  const coding = getCodingTotals(state, record);
   const privacy = getPrivacySettings();
   return {
     scope,
     status,
     duration: formatClock(durationMs),
-    codingSplit: describeCodingSplit(state),
+    codingSplit: describeCodingSplit(coding),
     archetype: profile.primary,
     metricSummary: `Focus ${metrics.focusScore} · Switches ${metrics.contextSwitches} · Tests ${metrics.testingDiscipline}% · AI ${metrics.aiBalance}%`,
-    promptUsage: privacy.aiTrackingVisible ? describeAgentPrompts(state) : 'Hidden by privacy setting',
-    tokenUsage: privacy.aiTrackingVisible ? describeTokenUsage(state) : 'Hidden by privacy setting',
-    buildFailures: describeFailures(state),
+    promptUsage: privacy.aiTrackingVisible ? describeAgentPrompts(state, record) : 'Hidden by privacy setting',
+    tokenUsage: privacy.aiTrackingVisible ? describeTokenUsage(state, record) : 'Hidden by privacy setting',
+    buildFailures: describeFailures(state, record),
   };
 }
 
@@ -140,6 +158,7 @@ function buildPanelItems(
   state: Readonly<DailySprintlyState>,
   summary: SessionPanelSummary,
   historyStore?: LocalSessionStore,
+  record?: SessionHistoryRecord | null,
 ): SessionPanelItem[] {
   const items: SessionPanelItem[] = [
     separator('SESSION'),
@@ -153,7 +172,9 @@ function buildPanelItems(
     );
   }
 
-  if (trackerStats.startedAt) {
+  // Activity rows render from the live tracker during a session and from the
+  // finalized record afterwards, instead of disappearing after a reload.
+  if (trackerStats.isRecording && trackerStats.startedAt) {
     items.push(
       separator('ACTIVITY'),
       item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`),
@@ -164,6 +185,17 @@ function buildPanelItems(
         describeTerminalActivity(trackerStats),
       ),
     );
+  } else if (record) {
+    items.push(
+      separator('ACTIVITY'),
+      item('edit', 'Edits', String(record.edits), `${record.linesChanged} lines changed`),
+      item(
+        'files',
+        'Files touched',
+        String(record.filesTouched),
+        describeRecordTerminalActivity(record),
+      ),
+    );
   }
 
   items.push(
@@ -171,7 +203,7 @@ function buildPanelItems(
     metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'),
     metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'),
     separator('RELIABILITY'),
-    metricItem('error', 'Build failures', summary.buildFailures, 'failures'),
+    metricItem('error', 'Failed executions', summary.buildFailures, 'failures'),
     metricItem('code', 'Coding split details', summary.codingSplit, 'coding'),
     item('pulse', 'Developer signals', summary.metricSummary, 'Explainable estimates from this session'),
     separator('CONTROLS'),
@@ -180,8 +212,9 @@ function buildPanelItems(
 
   if (historyStore) {
     const history = historyStore.getAggregates('all');
+    const controlCount = buildControlItems(trackerStats, state).length;
     items.splice(
-      items.length - buildControlItems(trackerStats, state).length,
+      items.length - controlCount,
       0,
       separator('LOCAL HISTORY'),
       metricItem(
@@ -221,37 +254,50 @@ async function showMetricDetail(
   metric: MetricDetail,
   state: Readonly<DailySprintlyState>,
   historyStore?: LocalSessionStore,
+  record?: SessionHistoryRecord | null,
 ): Promise<void> {
   const title = `Sprintly · ${state.session.isActive ? 'Current session' : 'Last session'}`;
   let items: vscode.QuickPickItem[];
 
   if (metric === 'coding') {
-    const coding = getCodingTotals(state);
+    const coding = getCodingTotals(state, record);
     items = [
-      item('edit', 'Manual', formatCompactDuration(coding.manualMs)),
-      item('copilot', 'AI-assisted', formatCompactDuration(coding.aiAssistedMs)),
-      item('wand', 'Automation', formatCompactDuration(coding.automationMs)),
-      item('question', 'Unattributed bulk', formatCompactDuration(coding.unknownBulkMs)),
+      item('edit', 'Manual keystrokes', formatCompactDuration(coding.manualMs)),
+      // No provider-attribution integration exists yet, so AI time only shows
+      // when it was actually observed; it is never inferred from edit shape.
+      item('copilot', 'AI-assisted', coding.aiAssistedMs > 0
+        ? formatCompactDuration(coding.aiAssistedMs)
+        : 'Not observed'),
+      item('wand', 'Automation', coding.automationMs > 0
+        ? formatCompactDuration(coding.automationMs)
+        : 'Not observed'),
+      item(
+        'question',
+        'Unattributed bulk',
+        `${formatCompactDuration(coding.unknownBulkMs)} · edits of unknown origin`,
+      ),
     ];
   } else if (metric === 'prompts') {
     if (!getPrivacySettings().aiTrackingVisible) {
       items = [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
     } else {
+      const prompts = record?.agentPrompts ?? state.agentPrompts;
       items = [
-        item('copilot', 'Claude Code', String(state.agentPrompts.claudeCode)),
-        item('terminal', 'Codex', String(state.agentPrompts.codex)),
-        item('github', 'GitHub Copilot', String(state.agentPrompts.githubCopilot)),
+        item('copilot', 'Claude Code', String(prompts.claudeCode)),
+        item('terminal', 'Codex', String(prompts.codex)),
+        item('github', 'GitHub Copilot', String(prompts.githubCopilot)),
       ];
     }
   } else if (metric === 'failures') {
-    const categories = Object.entries(state.buildFailures.byCategory)
+    const failures = record?.buildFailures ?? state.buildFailures;
+    const categories = Object.entries(failures.byCategory)
       .sort((left, right) => right[1] - left[1]);
     items = categories.length
       ? categories.map(([category, count]) => item('error', formatCategory(category), String(count)))
-      : [item('pass', 'No build failures', '0')];
+      : [item('pass', 'No failed executions', '0')];
   } else if (metric === 'tokens') {
     items = getPrivacySettings().aiTrackingVisible
-      ? buildTokenDetailItems(state)
+      ? buildTokenDetailItems(state, record)
       : [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
   } else {
     const history = historyStore?.getAggregates('all');
@@ -274,9 +320,16 @@ async function showMetricDetail(
   });
 }
 
-function buildTokenDetailItems(state: Readonly<DailySprintlyState>): vscode.QuickPickItem[] {
+function buildTokenDetailItems(
+  state: Readonly<DailySprintlyState>,
+  record?: SessionHistoryRecord | null,
+): vscode.QuickPickItem[] {
+  const tokenStats = record?.tokenStats ?? state.tokenStats;
+  const detectedAgents = record
+    ? (state.detectedAgents.length ? state.detectedAgents : [])
+    : state.detectedAgents;
   const items: vscode.QuickPickItem[] = [];
-  const claude = state.tokenStats.claudeCode;
+  const claude = tokenStats.claudeCode;
   if (claude) {
     items.push(
       item('copilot', 'Claude Code total', formatTokens(totalClaudeTokens(claude)), `Estimated cost ${formatCost(estimateClaudeCost(claude))}`),
@@ -285,21 +338,21 @@ function buildTokenDetailItems(state: Readonly<DailySprintlyState>): vscode.Quic
       item('database', 'Claude cache', formatTokens(claude.cacheRead + claude.cacheCreate)),
     );
   }
-  if (state.detectedAgents.includes('codex')) {
+  if (detectedAgents.includes('codex') || (tokenStats.codex !== 'unavailable' && tokenStats.codex.total > 0)) {
     items.push(item(
       'terminal',
       'Codex total',
-      state.tokenStats.codex === 'unavailable' ? 'Unavailable' : formatTokens(state.tokenStats.codex.total),
+      tokenStats.codex === 'unavailable' ? 'Unavailable' : formatTokens(tokenStats.codex.total),
     ));
   }
-  const copilot = state.tokenStats.githubCopilot;
+  const copilot = tokenStats.githubCopilot;
   if (copilot) {
     items.push(
       item('github', 'GitHub Copilot total', formatTokens(copilot.input + copilot.output), `${formatCredits(copilot.credits)} used`),
       item('arrow-down', 'Copilot input', formatTokens(copilot.input)),
       item('arrow-up', 'Copilot output', formatTokens(copilot.output)),
     );
-  } else if (state.detectedAgents.includes('github-copilot')) {
+  } else if (detectedAgents.includes('github-copilot')) {
     items.push(item('github', 'GitHub Copilot total', 'Unavailable'));
   }
   return items.length ? items : [item('circle-slash', 'No token usage captured', 'Unavailable')];
@@ -380,59 +433,104 @@ function metricTitle(metric: MetricDetail): string {
   return titles[metric];
 }
 
-function describeAgentPrompts(state: Readonly<DailySprintlyState>): string {
-  const total = state.agentPrompts.claudeCode
-    + state.agentPrompts.codex
-    + state.agentPrompts.githubCopilot;
+function describeAgentPrompts(
+  state: Readonly<DailySprintlyState>,
+  record?: SessionHistoryRecord | null,
+): string {
+  const prompts = record?.agentPrompts ?? state.agentPrompts;
+  const detected = state.detectedAgents;
+  const total = prompts.claudeCode + prompts.codex + prompts.githubCopilot;
   if (!state.session.id) return 'Start a sprint to begin counting';
   if (total === 0) return '0 total';
   const agents = [
-    `Claude ${state.agentPrompts.claudeCode}`,
-    `Codex ${state.agentPrompts.codex}`,
+    `Claude ${prompts.claudeCode}`,
+    `Codex ${prompts.codex}`,
   ];
-  if (state.agentPrompts.githubCopilot > 0 || state.detectedAgents.includes('github-copilot')) {
-    agents.push(`Copilot ${state.agentPrompts.githubCopilot}`);
+  if (prompts.githubCopilot > 0 || detected.includes('github-copilot')) {
+    agents.push(`Copilot ${prompts.githubCopilot}`);
   }
   return `${total} total · ${agents.join(' · ')}`;
 }
 
-function describeFailures(state: Readonly<DailySprintlyState>): string {
+function describeFailures(
+  state: Readonly<DailySprintlyState>,
+  record?: SessionHistoryRecord | null,
+): string {
   if (!state.session.id) return 'No session data';
-  const top = Object.entries(state.buildFailures.byCategory)
+  const failures = record?.buildFailures ?? state.buildFailures;
+  const top = Object.entries(failures.byCategory)
     .sort((left, right) => right[1] - left[1])[0];
   if (!top) return '0 total';
-  const recovery = state.buildFailures.total > 0
-    && state.buildFailures.recoveredFailures > 0
-    ? ` · Recovery ${Math.round((state.buildFailures.recoveredFailures / state.buildFailures.total) * 100)}%`
+  // Honest wording: these are failed terminal executions, and a recovery is
+  // only counted when the same tool family later succeeded.
+  const recovery = failures.total > 0 && failures.recoveredFailures > 0
+    ? ` · recovered (same tool family) ${failures.recoveredFailures}`
     : '';
-  const streak = state.buildFailures.failureStreak > 1
-    ? ` · ${state.buildFailures.failureStreak} failure streak`
+  const streak = failures.failureStreak > 1
+    ? ` · ${failures.failureStreak} failure streak`
     : '';
-  return `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
+  return `${failures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
 }
 
-function describeCodingSplit(state: Readonly<DailySprintlyState>): string {
-  const coding = getCodingTotals(state);
+function describeCodingSplit(coding: {
+  manualMs: number;
+  aiAssistedMs: number;
+  automationMs: number;
+  unknownBulkMs: number;
+}): string {
   return [
-    `Manual ${formatCompactDuration(coding.manualMs)}`,
-    `AI-assisted ${formatCompactDuration(coding.aiAssistedMs)}`,
-    `Automation ${formatCompactDuration(coding.automationMs)}`,
+    `Manual keystrokes ${formatCompactDuration(coding.manualMs)}`,
+    coding.aiAssistedMs > 0 ? `AI-assisted ${formatCompactDuration(coding.aiAssistedMs)}` : null,
+    coding.automationMs > 0 ? `Automation ${formatCompactDuration(coding.automationMs)}` : null,
     `Unattributed ${formatCompactDuration(coding.unknownBulkMs)}`,
-  ].join(' · ');
+  ].filter((part): part is string => part !== null).join(' · ');
 }
 
-function getCodingTotals(state: Readonly<DailySprintlyState>): {
+function getCodingTotals(
+  state: Readonly<DailySprintlyState>,
+  record?: SessionHistoryRecord | null,
+): {
   manualMs: number;
   aiAssistedMs: number;
   automationMs: number;
   unknownBulkMs: number;
 } {
+  if (record) {
+    return { ...record.coding };
+  }
   return {
     manualMs: state.session.manualMs ?? state.session.hardcodeMs ?? 0,
     aiAssistedMs: state.session.aiAssistedMs ?? state.session.vibecodeMs ?? 0,
     automationMs: state.session.automationMs ?? 0,
     unknownBulkMs: state.session.unknownBulkMs ?? 0,
   };
+}
+
+function metricInputFromRecord(
+  record: SessionHistoryRecord,
+  durationMs: number,
+): DeveloperMetricInput {
+  return {
+    sessionDurationMs: Math.max(durationMs, record.activeDurationMs),
+    coding: record.coding,
+    fileEdits: record.edits,
+    fileSaves: record.fileSaves,
+    fileSwitches: record.fileSwitches,
+    terminalCommands: record.terminalCommands,
+    terminalCommandsByCategory: record.terminalCommandsByCategory,
+    failures: record.buildFailures.total,
+    recoveredFailures: record.buildFailures.recoveredFailures,
+    successfulRuns: record.buildFailures.successfulRuns,
+  };
+}
+
+function describeRecordTerminalActivity(record: SessionHistoryRecord): string {
+  const categories = Object.entries(record.terminalCommandsByCategory ?? {})
+    .filter(([, count]) => count > 0)
+    .map(([category, count]) => `${formatCategory(category)} ${count}`)
+    .join(' · ');
+  return `${record.fileSaves} saves · ${record.terminalCommands} commands · `
+    + `${record.terminalOpens} terminal opens${categories ? ` · ${categories}` : ''}`;
 }
 
 function buildMetricInput(
@@ -464,22 +562,27 @@ function describeTerminalActivity(stats: Readonly<SessionStats>): string {
   return `${stats.fileSaves} saves · ${commands} commands · ${opens} terminal opens${categories ? ` · ${categories}` : ''}`;
 }
 
-function describeTokenUsage(state: Readonly<DailySprintlyState>): string {
+function describeTokenUsage(
+  state: Readonly<DailySprintlyState>,
+  record?: SessionHistoryRecord | null,
+): string {
   if (!state.session.id) return 'Start a sprint to begin counting';
+  const tokenStats = record?.tokenStats ?? state.tokenStats;
+  const detected = state.detectedAgents;
   const parts: string[] = [];
-  const claude = state.tokenStats.claudeCode;
+  const claude = tokenStats.claudeCode;
   if (claude) {
     parts.push(`Claude ${formatTokens(totalClaudeTokens(claude))}`);
   }
-  if (state.detectedAgents.includes('codex')) {
-    parts.push(state.tokenStats.codex === 'unavailable'
+  if (detected.includes('codex') || (tokenStats.codex !== 'unavailable' && tokenStats.codex.total > 0)) {
+    parts.push(tokenStats.codex === 'unavailable'
       ? 'Codex unavailable'
-      : `Codex ${formatTokens(state.tokenStats.codex.total)}`);
+      : `Codex ${formatTokens(tokenStats.codex.total)}`);
   }
-  const copilot = state.tokenStats.githubCopilot;
+  const copilot = tokenStats.githubCopilot;
   if (copilot) {
     parts.push(`Copilot ${formatTokens(copilot.input + copilot.output)}`);
-  } else if (state.detectedAgents.includes('github-copilot')) {
+  } else if (detected.includes('github-copilot')) {
     parts.push('Copilot unavailable');
   }
   return parts.length ? parts.join(' · ') : 'No token usage captured';

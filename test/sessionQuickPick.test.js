@@ -127,3 +127,40 @@ test('panel summary includes GitHub Copilot Chat prompts and tokens', () => {
   assert.equal(summary.promptUsage, '2 total · Claude 0 · Codex 0 · Copilot 2');
   assert.equal(summary.tokenUsage, 'Copilot ~1.5K');
 });
+
+test('panel summary hydrates from the finalized record after a reload', () => {
+  const state = sessionState({
+    session: {
+      ...sessionState().session,
+      id: 'reloaded-session',
+      startedAt: 1_000,
+      endedAt: 61_000,
+    },
+  });
+  const record = {
+    schemaVersion: 'devstrava.session.v1',
+    id: 'reloaded-session',
+    startedAt: 1_000,
+    endedAt: 31_000,
+    activeDurationMs: 30_000,
+    coding: { manualMs: 10_000, aiAssistedMs: 0, automationMs: 0, unknownBulkMs: 20_000 },
+    edits: 42,
+    linesChanged: 7,
+    fileSaves: 3,
+    fileSwitches: 2,
+    filesTouched: 4,
+    terminalOpens: 1,
+    terminalCommands: 5,
+    terminalCommandsByCategory: { build: 1, test: 2 },
+    agentPrompts: { claudeCode: 6, codex: 0, githubCopilot: 0 },
+    buildFailures: { total: 2, byCategory: { type_error: 2 }, recoveredFailures: 1 },
+  };
+
+  // The blank tracker must not hide activity or recompute signals from zeros:
+  // the finalized record supplies duration, prompts, and failures.
+  const summary = buildSessionPanelSummary(trackerStats(), state, record);
+  assert.equal(summary.scope, 'Last session');
+  assert.equal(summary.duration, '00:30');
+  assert.equal(summary.promptUsage, '6 total · Claude 6 · Codex 0');
+  assert.match(summary.buildFailures, /^2 total · Type Error 2/);
+});

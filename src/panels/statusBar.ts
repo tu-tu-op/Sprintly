@@ -82,7 +82,9 @@ class SprintlyPanelStatusBar implements SprintlyStatusBarController {
         this.item.tooltip = buildTooltip(presentation.summary);
       }
     } catch {
-      this.item.text = '$(circle-outline) Sprintly · Ready';
+      // A rendering failure must not claim "Ready" - that could imply no
+      // active session while one is running. The neutral label shows nothing.
+      this.item.text = '$(circle-outline) Sprintly';
       if (this.tooltipFingerprint !== 'fallback') {
         this.tooltipFingerprint = 'fallback';
         this.item.tooltip = 'Open Sprintly Quick Panel';

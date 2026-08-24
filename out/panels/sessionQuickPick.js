@@ -12,6 +12,16 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
     let trackerStats = tracker.get();
     let sessionState = sessionStore.get();
     const quickPick = vscode.window.createQuickPick();
+    // Canonical hydration: after a reload the volatile tracker is blank while a
+    // finalized record exists. The panel then renders that record instead of
+    // hiding activity or recomputing signals from zeroed counters.
+    const latestRecord = () => {
+        if (trackerStats.isRecording || !historyStore) {
+            return null;
+        }
+        const currentId = sessionState.session.id;
+        return (currentId ? historyStore.get(currentId) : null) ?? historyStore.list()[0] ?? null;
+    };
     quickPick.ignoreFocusOut = false;
     quickPick.matchOnDescription = false;
     quickPick.matchOnDetail = false;
@@ -20,10 +30,10 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
         { iconPath: new vscode.ThemeIcon('settings-gear'), tooltip: 'Settings' },
     ];
     const render = () => {
-        const summary = buildSessionPanelSummary(trackerStats, sessionState);
+        const summary = buildSessionPanelSummary(trackerStats, sessionState, latestRecord());
         quickPick.title = `$(pulse) Sprintly · ${summary.scope}`;
         quickPick.placeholder = panelPlaceholder(summary.status);
-        quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore);
+        quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore, latestRecord());
     };
     const trackerSubscription = tracker.onDidUpdate.event((next) => {
         trackerStats = next;
@@ -53,7 +63,7 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
         }
         quickPick.hide();
         if (selected.metric) {
-            void showMetricDetail(selected.metric, sessionStore.get(), historyStore);
+            void showMetricDetail(selected.metric, sessionStore.get(), historyStore, latestRecord());
             return;
         }
         if (selected.action) {
@@ -68,32 +78,38 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
     render();
     quickPick.show();
 }
-function buildSessionPanelSummary(trackerStats, state) {
+function buildSessionPanelSummary(trackerStats, state, record) {
     const hasSession = state.session.id !== null;
     const isActive = trackerStats.isRecording && state.session.isActive;
     const scope = isActive ? 'Current session' : hasSession ? 'Last session' : 'No session';
     const status = isActive
         ? trackerStats.isPaused ? 'Paused' : 'In progress'
         : hasSession ? 'Completed' : 'Ready';
-    const durationMs = trackerStats.startedAt
+    // Live sessions use the tracker clock; a stored session uses its finalized
+    // record so durations never disagree between panel and history.
+    const durationMs = trackerStats.startedAt && isActive
         ? trackerStats.durationSeconds * 1000
-        : calculateStoredDuration(state);
-    const profile = (0, developerMetrics_1.deriveDeveloperProfile)(buildMetricInput(trackerStats, state, durationMs));
-    const metrics = (0, developerMetrics_1.calculateDeveloperMetrics)(buildMetricInput(trackerStats, state, durationMs));
+        : record?.activeDurationMs ?? calculateStoredDuration(state);
+    const metricsInput = record && !isActive
+        ? metricInputFromRecord(record, durationMs)
+        : buildMetricInput(trackerStats, state, durationMs);
+    const profile = (0, developerMetrics_1.deriveDeveloperProfile)(metricsInput);
+    const metrics = (0, developerMetrics_1.calculateDeveloperMetrics)(metricsInput);
+    const coding = getCodingTotals(state, record);
     const privacy = (0, privacySettings_1.getPrivacySettings)();
     return {
         scope,
         status,
         duration: formatClock(durationMs),
-        codingSplit: describeCodingSplit(state),
+        codingSplit: describeCodingSplit(coding),
         archetype: profile.primary,
         metricSummary: `Focus ${metrics.focusScore} · Switches ${metrics.contextSwitches} · Tests ${metrics.testingDiscipline}% · AI ${metrics.aiBalance}%`,
-        promptUsage: privacy.aiTrackingVisible ? describeAgentPrompts(state) : 'Hidden by privacy setting',
-        tokenUsage: privacy.aiTrackingVisible ? describeTokenUsage(state) : 'Hidden by privacy setting',
-        buildFailures: describeFailures(state),
+        promptUsage: privacy.aiTrackingVisible ? describeAgentPrompts(state, record) : 'Hidden by privacy setting',
+        tokenUsage: privacy.aiTrackingVisible ? describeTokenUsage(state, record) : 'Hidden by privacy setting',
+        buildFailures: describeFailures(state, record),
     };
 }
-function buildPanelItems(tracker, trackerStats, state, summary, historyStore) {
+function buildPanelItems(tracker, trackerStats, state, summary, historyStore, record) {
     const items = [
         separator('SESSION'),
         item(statusIcon(summary.status), summary.status, summary.duration, state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
@@ -101,13 +117,19 @@ function buildPanelItems(tracker, trackerStats, state, summary, historyStore) {
     if (state.session.id) {
         items.push(item('code', 'Coding style', summary.codingSplit, `${summary.archetype} · ${summary.metricSummary}`));
     }
-    if (trackerStats.startedAt) {
+    // Activity rows render from the live tracker during a session and from the
+    // finalized record afterwards, instead of disappearing after a reload.
+    if (trackerStats.isRecording && trackerStats.startedAt) {
         items.push(separator('ACTIVITY'), item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`), item('files', 'Files touched', String(trackerStats.activeFiles.size), describeTerminalActivity(trackerStats)));
     }
-    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Build failures', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), item('pulse', 'Developer signals', summary.metricSummary, 'Explainable estimates from this session'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
+    else if (record) {
+        items.push(separator('ACTIVITY'), item('edit', 'Edits', String(record.edits), `${record.linesChanged} lines changed`), item('files', 'Files touched', String(record.filesTouched), describeRecordTerminalActivity(record)));
+    }
+    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Failed executions', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), item('pulse', 'Developer signals', summary.metricSummary, 'Explainable estimates from this session'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
     if (historyStore) {
         const history = historyStore.getAggregates('all');
-        items.splice(items.length - buildControlItems(trackerStats, state).length, 0, separator('LOCAL HISTORY'), metricItem('history', 'Session history', `${history.sessions} completed · ${formatCompactDuration(history.codingTimeMs)} coding`, 'history'));
+        const controlCount = buildControlItems(trackerStats, state).length;
+        items.splice(items.length - controlCount, 0, separator('LOCAL HISTORY'), metricItem('history', 'Session history', `${history.sessions} completed · ${formatCompactDuration(history.codingTimeMs)} coding`, 'history'));
     }
     return items;
 }
@@ -127,17 +149,22 @@ function buildControlItems(trackerStats, state) {
         actionItem('stop-circle', 'End Sprint', 'Keep this session as your latest summary', 'stop'),
     ];
 }
-async function showMetricDetail(metric, state, historyStore) {
+async function showMetricDetail(metric, state, historyStore, record) {
     const title = `Sprintly · ${state.session.isActive ? 'Current session' : 'Last session'}`;
     let items;
     if (metric === 'coding') {
-        const coding = getCodingTotals(state);
+        const coding = getCodingTotals(state, record);
         items = [
-            item('edit', 'Manual', formatCompactDuration(coding.manualMs)),
-            item('copilot', 'AI-assisted', formatCompactDuration(coding.aiAssistedMs)),
-            item('pulse', 'AI coding vs Hard Code', describeCodingComparison(coding.aiAssistedMs, coding.manualMs), `${makeCodingComparisonBar(coding.aiAssistedMs, coding.manualMs)}  █ AI coding · ▓ Hard Code`),
-            item('wand', 'Automation', formatCompactDuration(coding.automationMs)),
-            item('question', 'Unattributed bulk', formatCompactDuration(coding.unknownBulkMs)),
+            item('edit', 'Manual keystrokes', formatCompactDuration(coding.manualMs)),
+            // No provider-attribution integration exists yet, so AI time only shows
+            // when it was actually observed; it is never inferred from edit shape.
+            item('copilot', 'AI-assisted', coding.aiAssistedMs > 0
+                ? formatCompactDuration(coding.aiAssistedMs)
+                : 'Not observed'),
+            item('wand', 'Automation', coding.automationMs > 0
+                ? formatCompactDuration(coding.automationMs)
+                : 'Not observed'),
+            item('question', 'Unattributed bulk', `${formatCompactDuration(coding.unknownBulkMs)} · edits of unknown origin`),
         ];
     }
     else if (metric === 'prompts') {
@@ -145,23 +172,25 @@ async function showMetricDetail(metric, state, historyStore) {
             items = [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
         }
         else {
+            const prompts = record?.agentPrompts ?? state.agentPrompts;
             items = [
-                item('copilot', 'Claude Code', String(state.agentPrompts.claudeCode)),
-                item('terminal', 'Codex', String(state.agentPrompts.codex)),
-                item('github', 'GitHub Copilot', String(state.agentPrompts.githubCopilot)),
+                item('copilot', 'Claude Code', String(prompts.claudeCode)),
+                item('terminal', 'Codex', String(prompts.codex)),
+                item('github', 'GitHub Copilot', String(prompts.githubCopilot)),
             ];
         }
     }
     else if (metric === 'failures') {
-        const categories = Object.entries(state.buildFailures.byCategory)
+        const failures = record?.buildFailures ?? state.buildFailures;
+        const categories = Object.entries(failures.byCategory)
             .sort((left, right) => right[1] - left[1]);
         items = categories.length
             ? categories.map(([category, count]) => item('error', formatCategory(category), String(count)))
-            : [item('pass', 'No build failures', '0')];
+            : [item('pass', 'No failed executions', '0')];
     }
     else if (metric === 'tokens') {
         items = (0, privacySettings_1.getPrivacySettings)().aiTrackingVisible
-            ? buildTokenDetailItems(state)
+            ? buildTokenDetailItems(state, record)
             : [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
     }
     else {
@@ -183,20 +212,24 @@ async function showMetricDetail(metric, state, historyStore) {
         matchOnDetail: false,
     });
 }
-function buildTokenDetailItems(state) {
+function buildTokenDetailItems(state, record) {
+    const tokenStats = record?.tokenStats ?? state.tokenStats;
+    const detectedAgents = record
+        ? (state.detectedAgents.length ? state.detectedAgents : [])
+        : state.detectedAgents;
     const items = [];
-    const claude = state.tokenStats.claudeCode;
+    const claude = tokenStats.claudeCode;
     if (claude) {
         items.push(item('copilot', 'Claude Code total', formatTokens(totalClaudeTokens(claude)), `Estimated cost ${formatCost((0, pricing_1.estimateClaudeCost)(claude))}`), item('arrow-down', 'Claude input', formatTokens(claude.input)), item('arrow-up', 'Claude output', formatTokens(claude.output)), item('database', 'Claude cache', formatTokens(claude.cacheRead + claude.cacheCreate)));
     }
-    if (state.detectedAgents.includes('codex')) {
-        items.push(item('terminal', 'Codex total', state.tokenStats.codex === 'unavailable' ? 'Unavailable' : formatTokens(state.tokenStats.codex.total)));
+    if (detectedAgents.includes('codex') || (tokenStats.codex !== 'unavailable' && tokenStats.codex.total > 0)) {
+        items.push(item('terminal', 'Codex total', tokenStats.codex === 'unavailable' ? 'Unavailable' : formatTokens(tokenStats.codex.total)));
     }
-    const copilot = state.tokenStats.githubCopilot;
+    const copilot = tokenStats.githubCopilot;
     if (copilot) {
         items.push(item('github', 'GitHub Copilot total', formatTokens(copilot.input + copilot.output), `${formatCredits(copilot.credits)} used`), item('arrow-down', 'Copilot input', formatTokens(copilot.input)), item('arrow-up', 'Copilot output', formatTokens(copilot.output)));
     }
-    else if (state.detectedAgents.includes('github-copilot')) {
+    else if (detectedAgents.includes('github-copilot')) {
         items.push(item('github', 'GitHub Copilot total', 'Unavailable'));
     }
     return items.length ? items : [item('circle-slash', 'No token usage captured', 'Unavailable')];
@@ -256,73 +289,81 @@ function metricTitle(metric) {
     };
     return titles[metric];
 }
-function describeAgentPrompts(state) {
-    const total = state.agentPrompts.claudeCode
-        + state.agentPrompts.codex
-        + state.agentPrompts.githubCopilot;
+function describeAgentPrompts(state, record) {
+    const prompts = record?.agentPrompts ?? state.agentPrompts;
+    const detected = state.detectedAgents;
+    const total = prompts.claudeCode + prompts.codex + prompts.githubCopilot;
     if (!state.session.id)
         return 'Start a sprint to begin counting';
     if (total === 0)
         return '0 total';
     const agents = [
-        `Claude ${state.agentPrompts.claudeCode}`,
-        `Codex ${state.agentPrompts.codex}`,
+        `Claude ${prompts.claudeCode}`,
+        `Codex ${prompts.codex}`,
     ];
-    if (state.agentPrompts.githubCopilot > 0 || state.detectedAgents.includes('github-copilot')) {
-        agents.push(`Copilot ${state.agentPrompts.githubCopilot}`);
+    if (prompts.githubCopilot > 0 || detected.includes('github-copilot')) {
+        agents.push(`Copilot ${prompts.githubCopilot}`);
     }
     return `${total} total · ${agents.join(' · ')}`;
 }
-function describeFailures(state) {
+function describeFailures(state, record) {
     if (!state.session.id)
         return 'No session data';
-    const top = Object.entries(state.buildFailures.byCategory)
+    const failures = record?.buildFailures ?? state.buildFailures;
+    const top = Object.entries(failures.byCategory)
         .sort((left, right) => right[1] - left[1])[0];
     if (!top)
         return '0 total';
-    const recovery = state.buildFailures.total > 0
-        && state.buildFailures.recoveredFailures > 0
-        ? ` · Recovery ${Math.round((state.buildFailures.recoveredFailures / state.buildFailures.total) * 100)}%`
+    // Honest wording: these are failed terminal executions, and a recovery is
+    // only counted when the same tool family later succeeded.
+    const recovery = failures.total > 0 && failures.recoveredFailures > 0
+        ? ` · recovered (same tool family) ${failures.recoveredFailures}`
         : '';
-    const streak = state.buildFailures.failureStreak > 1
-        ? ` · ${state.buildFailures.failureStreak} failure streak`
+    const streak = failures.failureStreak > 1
+        ? ` · ${failures.failureStreak} failure streak`
         : '';
-    return `${state.buildFailures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
+    return `${failures.total} total · ${formatCategory(top[0])} ${top[1]}${recovery}${streak}`;
 }
-function describeCodingSplit(state) {
-    const coding = getCodingTotals(state);
+function describeCodingSplit(coding) {
     return [
-        `Manual ${formatCompactDuration(coding.manualMs)}`,
-        `AI-assisted ${formatCompactDuration(coding.aiAssistedMs)}`,
-        `Automation ${formatCompactDuration(coding.automationMs)}`,
+        `Manual keystrokes ${formatCompactDuration(coding.manualMs)}`,
+        coding.aiAssistedMs > 0 ? `AI-assisted ${formatCompactDuration(coding.aiAssistedMs)}` : null,
+        coding.automationMs > 0 ? `Automation ${formatCompactDuration(coding.automationMs)}` : null,
         `Unattributed ${formatCompactDuration(coding.unknownBulkMs)}`,
-    ].join(' · ');
+    ].filter((part) => part !== null).join(' · ');
 }
-function describeCodingComparison(aiMs, hardCodeMs) {
-    const totalMs = Math.max(0, aiMs) + Math.max(0, hardCodeMs);
-    if (totalMs === 0) {
-        return 'AI coding 0% · Hard Code 0%';
+function getCodingTotals(state, record) {
+    if (record) {
+        return { ...record.coding };
     }
-    const aiPercent = Math.round((Math.max(0, aiMs) / totalMs) * 100);
-    return `AI coding ${aiPercent}% · Hard Code ${100 - aiPercent}%`;
-}
-function makeCodingComparisonBar(aiMs, hardCodeMs, length = 24) {
-    const safeAiMs = Math.max(0, aiMs);
-    const safeHardCodeMs = Math.max(0, hardCodeMs);
-    const totalMs = safeAiMs + safeHardCodeMs;
-    if (totalMs === 0) {
-        return `[${'░'.repeat(length)}]`;
-    }
-    const aiSlots = Math.round((safeAiMs / totalMs) * length);
-    return `[${'█'.repeat(aiSlots)}${'▓'.repeat(length - aiSlots)}]`;
-}
-function getCodingTotals(state) {
     return {
         manualMs: state.session.manualMs ?? state.session.hardcodeMs ?? 0,
         aiAssistedMs: state.session.aiAssistedMs ?? state.session.vibecodeMs ?? 0,
         automationMs: state.session.automationMs ?? 0,
         unknownBulkMs: state.session.unknownBulkMs ?? 0,
     };
+}
+function metricInputFromRecord(record, durationMs) {
+    return {
+        sessionDurationMs: Math.max(durationMs, record.activeDurationMs),
+        coding: record.coding,
+        fileEdits: record.edits,
+        fileSaves: record.fileSaves,
+        fileSwitches: record.fileSwitches,
+        terminalCommands: record.terminalCommands,
+        terminalCommandsByCategory: record.terminalCommandsByCategory,
+        failures: record.buildFailures.total,
+        recoveredFailures: record.buildFailures.recoveredFailures,
+        successfulRuns: record.buildFailures.successfulRuns,
+    };
+}
+function describeRecordTerminalActivity(record) {
+    const categories = Object.entries(record.terminalCommandsByCategory ?? {})
+        .filter(([, count]) => count > 0)
+        .map(([category, count]) => `${formatCategory(category)} ${count}`)
+        .join(' · ');
+    return `${record.fileSaves} saves · ${record.terminalCommands} commands · `
+        + `${record.terminalOpens} terminal opens${categories ? ` · ${categories}` : ''}`;
 }
 function buildMetricInput(trackerStats, state, durationMs) {
     return {
@@ -347,24 +388,26 @@ function describeTerminalActivity(stats) {
         .join(' · ');
     return `${stats.fileSaves} saves · ${commands} commands · ${opens} terminal opens${categories ? ` · ${categories}` : ''}`;
 }
-function describeTokenUsage(state) {
+function describeTokenUsage(state, record) {
     if (!state.session.id)
         return 'Start a sprint to begin counting';
+    const tokenStats = record?.tokenStats ?? state.tokenStats;
+    const detected = state.detectedAgents;
     const parts = [];
-    const claude = state.tokenStats.claudeCode;
+    const claude = tokenStats.claudeCode;
     if (claude) {
         parts.push(`Claude ${formatTokens(totalClaudeTokens(claude))}`);
     }
-    if (state.detectedAgents.includes('codex')) {
-        parts.push(state.tokenStats.codex === 'unavailable'
+    if (detected.includes('codex') || (tokenStats.codex !== 'unavailable' && tokenStats.codex.total > 0)) {
+        parts.push(tokenStats.codex === 'unavailable'
             ? 'Codex unavailable'
-            : `Codex ${formatTokens(state.tokenStats.codex.total)}`);
+            : `Codex ${formatTokens(tokenStats.codex.total)}`);
     }
-    const copilot = state.tokenStats.githubCopilot;
+    const copilot = tokenStats.githubCopilot;
     if (copilot) {
         parts.push(`Copilot ${formatTokens(copilot.input + copilot.output)}`);
     }
-    else if (state.detectedAgents.includes('github-copilot')) {
+    else if (detected.includes('github-copilot')) {
         parts.push('Copilot unavailable');
     }
     return parts.length ? parts.join(' · ') : 'No token usage captured';
