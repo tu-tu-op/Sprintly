@@ -52,6 +52,13 @@ export class AgentLogWatcher implements vscode.Disposable {
   private scanRequested = false;
   private disposed = false;
   private startPromise: Promise<void> | undefined;
+  /**
+   * Consent boundary: agent-log discovery, reading, parsing, watching, and
+   * cursor persistence may only run after an explicit user Start (or an
+   * equivalent opted-in flow). Nothing observes logs before that point or
+   * after End/Reset/disable stops monitoring again.
+   */
+  private monitoring = false;
 
   constructor(
     private readonly store: DailyStateStore,
@@ -64,11 +71,35 @@ export class AgentLogWatcher implements vscode.Disposable {
   private readonly workspacePaths: string[];
 
   start(): Promise<void> {
+    this.monitoring = true;
     this.startPromise ??= this.initialize();
     return this.startPromise;
   }
 
+  /**
+   * Halt every form of log observation. Monitoring stays restartable through
+   * start(), so an ended sprint does not permanently break the next one.
+   */
+  stop(): void {
+    this.monitoring = false;
+    this.startPromise = undefined;
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = undefined;
+    }
+    for (const watcher of this.watchers.splice(0)) {
+      watcher.close();
+    }
+    this.watchedDirectories.length = 0;
+    this.watchedDirectoryKeys.clear();
+    this.fileWorkspaces.clear();
+    this.fileParseContexts.clear();
+  }
+
   async scanNow(): Promise<void> {
+    if (!this.monitoring || this.disposed) {
+      return;
+    }
     await this.start();
     await this.requestScan();
   }
@@ -77,18 +108,15 @@ export class AgentLogWatcher implements vscode.Disposable {
     await this.discoverDirectories();
     await this.requestScan();
     this.pollTimer = setInterval(() => {
-      void this.requestScan();
+      if (this.monitoring && !this.disposed) {
+        void this.requestScan();
+      }
     }, POLL_INTERVAL_MS);
   }
 
   dispose(): void {
     this.disposed = true;
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer);
-    }
-    for (const watcher of this.watchers) {
-      watcher.close();
-    }
+    this.stop();
   }
 
   private async discoverDirectories(): Promise<void> {
@@ -135,8 +163,11 @@ export class AgentLogWatcher implements vscode.Disposable {
     this.scanPromise = (async () => {
       do {
         this.scanRequested = false;
+        if (!this.monitoring || this.disposed) {
+          return;
+        }
         await this.scanAllFiles();
-      } while (this.scanRequested && !this.disposed);
+      } while (this.scanRequested && this.monitoring && !this.disposed);
     })().finally(() => {
       this.scanPromise = undefined;
     });

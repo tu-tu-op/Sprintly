@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { registerCommands } from './commands';
-import { isSprintlyEnabled, runConsentFlow } from './consentFlow';
+import { runConsentFlow } from './consentFlow';
 import { SessionTracker } from './sessionTracker';
 import { initStatusBar } from './panels/statusBar';
 import { AgentLogWatcher } from './tracking/agentLogWatcher';
@@ -58,9 +58,11 @@ export function activate(context: vscode.ExtensionContext): void {
     historyStore.recoverInterruptedSession(interruptedId, dailyStore.get().session.endedAt ?? Date.now());
   }
   registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore, handoff);
-  if (isSprintlyEnabled()) {
-    void agentLogWatcher.start().catch(() => undefined);
-  }
+
+  // Privacy boundary: the agent-log watcher is constructed dormant. It only
+  // discovers, reads, watches, or persists cursor state after the user
+  // explicitly starts a sprint (see commands.ts start()).
+
 
   context.subscriptions.push(
     vscode.commands.registerCommand('sprintly.devOpenScreen', async () => {

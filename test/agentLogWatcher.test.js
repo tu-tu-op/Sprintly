@@ -61,6 +61,52 @@ test('workspace path matching accepts only the root and its descendants', () => 
   assert.equal(isPathInWorkspace(root, path.resolve('C:/projects/sprintly-other')), false);
 });
 
+test('agent logs are not observed before explicit Start or after Stop', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sprintly-consent-'));
+  const workspacePath = path.join(directory, 'workspace');
+  const filePath = path.join(directory, 'rollout-consent.jsonl');
+  fs.mkdirSync(workspacePath);
+  const source = {
+    id: 'codex',
+    getLogDirs: () => [directory],
+    extractWorkspacePath: (line) => typeof line.cwd === 'string' ? line.cwd : null,
+    isPromptEntry: (line) => line.kind === 'prompt',
+    extractTimestamp: (line) => typeof line.timestamp === 'number' ? line.timestamp : null,
+    extractUsage: () => null,
+  };
+
+  try {
+    const store = new DailyStateStore(new TestMemento(), () => 1_000);
+    store.startSession(1_000, 'consent-session');
+    const watcher = new AgentLogWatcher(store, [source], [workspacePath]);
+
+    // Before consent: an explicit scan request must not read or persist anything.
+    appendLines(filePath, [JSON.stringify({ kind: 'context', timestamp: 1_010, cwd: workspacePath })]);
+    await watcher.scanNow();
+    assert.deepEqual(Object.keys(store.get().agentFileCursors), []);
+
+    // After explicit Start: observation begins.
+    await watcher.start();
+    await watcher.scanNow();
+    assert.equal(store.getAgentFileOffset(filePath), fs.statSync(filePath).size);
+
+    // After Stop: appended activity stays unread.
+    watcher.stop();
+    appendLines(filePath, [JSON.stringify({ kind: 'prompt', timestamp: 1_100 })]);
+    await watcher.scanNow();
+    const offsetAfterStop = store.getAgentFileOffset(filePath);
+    assert.equal(offsetAfterStop, fs.statSync(filePath).size - `${JSON.stringify({ kind: 'prompt', timestamp: 1_100 })}\n`.length);
+
+    // A later Start observes again without recreating the watcher.
+    await watcher.start();
+    await watcher.scanNow();
+    assert.equal(store.get().agentPrompts.codex, 1);
+    watcher.dispose();
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('agent prompts and tokens are assigned only to their Sprintly session window', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sprintly-agent-'));
   const workspacePath = path.join(directory, 'workspace');

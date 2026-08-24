@@ -39,9 +39,9 @@ function activate(context) {
         historyStore.recoverInterruptedSession(interruptedId, dailyStore.get().session.endedAt ?? Date.now());
     }
     (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore, handoff);
-    if ((0, consentFlow_1.isSprintlyEnabled)()) {
-        void agentLogWatcher.start().catch(() => undefined);
-    }
+    // Privacy boundary: the agent-log watcher is constructed dormant. It only
+    // discovers, reads, watches, or persists cursor state after the user
+    // explicitly starts a sprint (see commands.ts start()).
     context.subscriptions.push(vscode.commands.registerCommand('sprintly.devOpenScreen', async () => {
         const pick = await pickDevScreen();
         if (!pick) {

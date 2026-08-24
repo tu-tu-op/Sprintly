@@ -56,9 +56,12 @@ export function registerCommands(
       void vscode.window.showInformationMessage('A Sprintly session is already in progress.');
       return;
     }
-    await agentLogWatcher.scanNow();
     const id = sessionStore.startSession();
     tracker.start();
+    // Consent boundary: log discovery and the pre-attribution baseline scan
+    // happen only now, after the user explicitly chose to record.
+    await agentLogWatcher.start();
+    await agentLogWatcher.scanNow();
     const state = sessionStore.get();
     historyStore.create({ id, startedAt: state.session.startedAt ?? Date.now() });
     syncDraft();
@@ -93,6 +96,9 @@ export function registerCommands(
     tracker.stop(endedAt);
     sessionStore.stopSession(endedAt);
     const record = syncDraft(true, endedAt);
+    // Consent boundary: stop all log discovery, watching, and cursor writes
+    // once the sprint ends.
+    agentLogWatcher.stop();
     refresh();
     void vscode.window.showInformationMessage(
       `Sprintly session ended: ${record?.edits ?? 0} edits · ${Math.floor((record?.activeDurationMs ?? 0) / 60_000)}m`,
@@ -105,6 +111,7 @@ export function registerCommands(
     if (id) historyStore.delete(id);
     sessionStore.resetSession();
     tracker.reset();
+    agentLogWatcher.stop();
     refresh();
   };
 
