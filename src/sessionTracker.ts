@@ -56,6 +56,10 @@ export class SessionTracker implements vscode.Disposable {
   }
 
   start(): void {
+    // Idempotent: a concurrent or repeated Start must never attach a second
+    // listener set (audit Bug #4). Detach any prior capture first.
+    this._detach();
+    if (this.tick) clearInterval(this.tick);
     this.stats = this.blank();
     this.stats.isRecording = true;
     this.stats.startedAt = new Date();

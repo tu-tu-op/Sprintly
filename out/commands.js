@@ -9,8 +9,24 @@ const localSessionStore_1 = require("./tracking/localSessionStore");
 const developerMetrics_1 = require("./tracking/developerMetrics");
 const websiteHandoff_1 = require("./tracking/websiteHandoff");
 const privacySettings_1 = require("./tracking/privacySettings");
+/**
+ * Lifecycle commands must never interleave: a Start awaiting its baseline scan
+ * must not race another Start past the active-session guard (audit Bug #4).
+ * Every transition runs serialized through this queue.
+ */
+class LifecycleQueue {
+    constructor() {
+        this.tail = Promise.resolve();
+    }
+    run(task) {
+        const result = this.tail.then(task, task);
+        this.tail = result.then(() => undefined, () => undefined);
+        return result;
+    }
+}
 function registerCommands(context, tracker, statusBar, sessionStore, agentLogWatcher, historyStore, handoff = new websiteHandoff_1.WebsiteHandoffService()) {
     const refresh = () => statusBar.update();
+    const lifecycle = new LifecycleQueue();
     const syncDraft = (completed = false, endedAt = Date.now()) => {
         const state = sessionStore.get();
         if (!state.session.id || state.session.startedAt === null)
@@ -27,61 +43,83 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
         return record;
     };
     const start = async () => {
-        if (!(0, consentFlow_1.isSprintlyEnabled)()) {
-            void vscode.window.showInformationMessage('Sprintly is disabled in Settings.');
-            return;
-        }
-        if (sessionStore.get().session.isActive) {
-            void vscode.window.showInformationMessage('A Sprintly session is already in progress.');
-            return;
-        }
-        await agentLogWatcher.scanNow();
-        const id = sessionStore.startSession();
-        tracker.start();
-        const state = sessionStore.get();
-        historyStore.create({ id, startedAt: state.session.startedAt ?? Date.now() });
-        syncDraft();
-        refresh();
-        void vscode.window.showInformationMessage('Sprintly session started.');
+        await lifecycle.run(async () => {
+            if (!(0, consentFlow_1.isSprintlyEnabled)()) {
+                void vscode.window.showInformationMessage('Sprintly is disabled in Settings.');
+                return;
+            }
+            if (sessionStore.get().session.isActive) {
+                void vscode.window.showInformationMessage('A Sprintly session is already in progress.');
+                return;
+            }
+            const id = sessionStore.startSession();
+            tracker.start();
+            // Consent boundary: log discovery and the pre-attribution baseline scan
+            // happen only now, after the user explicitly chose to record.
+            await agentLogWatcher.start();
+            await agentLogWatcher.scanNow();
+            // Recheck after awaits so a queued concurrent Start cannot double-start.
+            if (sessionStore.get().session.id !== id || !sessionStore.get().session.isActive) {
+                return;
+            }
+            const state = sessionStore.get();
+            historyStore.create({ id, startedAt: state.session.startedAt ?? Date.now() });
+            syncDraft();
+            refresh();
+            void vscode.window.showInformationMessage('Sprintly session started.');
+        });
     };
-    const pause = async () => {
+    const pause = () => lifecycle.run(async () => {
+        if (!sessionStore.get().session.isActive || sessionStore.get().session.isPaused)
+            return;
         await agentLogWatcher.scanNow();
         sessionStore.pauseSession();
         tracker.pause();
         syncDraft();
         refresh();
-    };
-    const resume = async () => {
+    });
+    const resume = () => lifecycle.run(async () => {
+        const state = sessionStore.get();
+        if (!state.session.isActive || !state.session.isPaused)
+            return;
         await agentLogWatcher.scanNow();
         sessionStore.resumeSession();
         tracker.resume();
         syncDraft();
         refresh();
-    };
-    const stop = async () => {
+    });
+    const stop = () => lifecycle.run(async () => {
         const currentState = sessionStore.get();
         const activeId = currentState.session.isActive ? currentState.session.id : null;
         if (!activeId)
             return;
         await agentLogWatcher.scanNow();
+        // Recheck after the final scan: a queued Stop or Reset may have ended the
+        // session while this transition waited for the mutex.
+        if (!sessionStore.get().session.isActive)
+            return;
         const endedAt = Date.now();
         // Finalize the timer before closing the DailyStateStore boundary so the
         // persisted record contains the last partial second of observed time.
         tracker.stop(endedAt);
         sessionStore.stopSession(endedAt);
         const record = syncDraft(true, endedAt);
+        // Consent boundary: stop all log discovery, watching, and cursor writes
+        // once the sprint ends.
+        agentLogWatcher.stop();
         refresh();
         void vscode.window.showInformationMessage(`Sprintly session ended: ${record?.edits ?? 0} edits · ${Math.floor((record?.activeDurationMs ?? 0) / 60000)}m`);
-    };
-    const reset = async () => {
+    });
+    const reset = () => lifecycle.run(async () => {
         await agentLogWatcher.scanNow();
         const id = sessionStore.get().session.id;
         if (id)
             historyStore.delete(id);
         sessionStore.resetSession();
         tracker.reset();
+        agentLogWatcher.stop();
         refresh();
-    };
+    });
     const clearHistory = async () => {
         const confirmation = await vscode.window.showWarningMessage('Clear all locally stored DevStrava session history?', { modal: true }, 'Clear History');
         if (confirmation !== 'Clear History')
