@@ -27,9 +27,18 @@ class LifecycleQueue {
 function registerCommands(context, tracker, statusBar, sessionStore, agentLogWatcher, historyStore, handoff = new websiteHandoff_1.WebsiteHandoffService()) {
     const refresh = () => statusBar.update();
     const lifecycle = new LifecycleQueue();
+    /**
+     * The session id this process is actively recording, or null. Draft
+     * synchronization is gated on it so late cursor-only or delayed agent events
+     * after End can never recreate a hidden draft behind a frozen completed
+     * record (audit Bug #3).
+     */
+    let recordingId = null;
     const syncDraft = (completed = false, endedAt = Date.now()) => {
         const state = sessionStore.get();
-        if (!state.session.id || state.session.startedAt === null)
+        if (!recordingId || !state.session.id || state.session.startedAt === null)
+            return null;
+        if (state.session.id !== recordingId)
             return null;
         const record = buildCurrentRecord(state, tracker.get(), endedAt, completed);
         if (!record)
@@ -64,6 +73,7 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
             }
             const state = sessionStore.get();
             historyStore.create({ id, startedAt: state.session.startedAt ?? Date.now() });
+            recordingId = id;
             syncDraft();
             refresh();
             void vscode.window.showInformationMessage('Sprintly session started.');
@@ -104,6 +114,8 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
         tracker.stop(endedAt);
         sessionStore.stopSession(endedAt);
         const record = syncDraft(true, endedAt);
+        // The completed record is canonical and frozen from this point on.
+        recordingId = null;
         // Consent boundary: stop all log discovery, watching, and cursor writes
         // once the sprint ends.
         agentLogWatcher.stop();
@@ -117,6 +129,7 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
             historyStore.delete(id);
         sessionStore.resetSession();
         tracker.reset();
+        recordingId = null;
         agentLogWatcher.stop();
         refresh();
     });

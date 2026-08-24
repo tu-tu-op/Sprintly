@@ -137,3 +137,17 @@ test('retention, delete, and clear operate only on local aggregate records', () 
   store.clear();
   assert.equal(store.list().length, 0);
 });
+
+test('a late update cannot recreate a draft behind a completed record', () => {
+  const store = new LocalSessionStore(new TestMemento(), { now: () => 5_000 });
+  store.append(completeRecord('sess_late', 4_000));
+
+  // Simulates the reproduced audit divergence: after completion, a delayed
+  // agent batch re-syncs an incomplete snapshot with the same session id.
+  const staleDraft = { ...completeRecord('sess_late', 4_000), completed: false, edits: 99 };
+  store.upsertDraft(staleDraft);
+
+  assert.equal(store.get('sess_late').completed, true);
+  assert.equal(store.get('sess_late').edits, 12);
+  assert.deepEqual(store.list().map((record) => record.id), ['sess_late']);
+});

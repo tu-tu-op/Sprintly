@@ -94,6 +94,12 @@ class LocalSessionStore {
     }
     /** Persist the latest aggregate snapshot without making an active session visible in list(). */
     upsertDraft(record) {
+        // A completed record is canonical and frozen. Late post-stop events (for
+        // example a delayed agent-log batch) must never recreate an incomplete
+        // draft behind it, which would make get(), list(), and export disagree.
+        if (!record.completed && this.records.some((candidate) => candidate.id === record.id)) {
+            return;
+        }
         const draft = normalizeRecord({ ...record, completed: false }, false);
         this.drafts = [draft, ...this.drafts.filter((candidate) => candidate.id !== draft.id)];
         this.persist();
