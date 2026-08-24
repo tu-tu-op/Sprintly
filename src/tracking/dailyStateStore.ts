@@ -43,6 +43,8 @@ export interface BuildFailureStats {
   recoveredFailures: number;
   failureStreak: number;
   maxFailureStreak: number;
+  /** Category of the most recent failure; used for same-task recovery checks. */
+  lastFailureCategory: string | null;
 }
 
 export interface ClaudeTokenStats {
@@ -103,6 +105,13 @@ export interface AgentLogBatch {
 
 const SESSION_STATE_KEY = 'sprintly.sessionTracking.v3';
 const LEGACY_DAILY_STATE_KEY = 'sprintly.dailyTracking.v2';
+
+/** Command categories whose success can evidence recovery of a failure family. */
+const RECOVERABLE_FAMILIES: Record<string, string> = {
+  build: 'build_failure',
+  test: 'test_failure',
+  lint: 'lint_failure',
+};
 
 export class DailyStateStore implements vscode.Disposable {
   private state: SprintlySessionState;
@@ -265,17 +274,26 @@ export class DailyStateStore implements vscode.Disposable {
         state.buildFailures.maxFailureStreak,
         state.buildFailures.failureStreak,
       );
+      state.buildFailures.lastFailureCategory = category;
     });
   }
 
-  addSuccessfulRun(occurredAt = this.now()): void {
+  addSuccessfulRun(commandCategory: string, occurredAt = this.now()): void {
     if (!this.isCapturing(occurredAt)) {
       return;
     }
     this.mutate((state) => {
       state.buildFailures.successfulRuns += 1;
       if (state.buildFailures.failureStreak > 0) {
-        state.buildFailures.recoveredFailures += 1;
+        // Recovery requires same-task evidence: the successful execution must
+        // belong to the tool family that failed. An unrelated success (for
+        // example `ls` after a failed build) breaks the streak but is never
+        // counted as a recovery.
+        const expectedFailure = RECOVERABLE_FAMILIES[commandCategory];
+        if (expectedFailure !== undefined
+          && state.buildFailures.lastFailureCategory === expectedFailure) {
+          state.buildFailures.recoveredFailures += 1;
+        }
         state.buildFailures.failureStreak = 0;
       }
     });
@@ -383,6 +401,7 @@ function createEmptyState(
       recoveredFailures: 0,
       failureStreak: 0,
       maxFailureStreak: 0,
+      lastFailureCategory: null,
     },
     tokenStats: { claudeCode: null, codex: 'unavailable', githubCopilot: null },
     agentFileCursors,
@@ -463,6 +482,9 @@ function parseStoredState(value: unknown): SprintlySessionState {
       recoveredFailures: safeNumber(failures.recoveredFailures),
       failureStreak: safeNumber(failures.failureStreak),
       maxFailureStreak: safeNumber(failures.maxFailureStreak),
+      lastFailureCategory: typeof failures.lastFailureCategory === 'string'
+        ? failures.lastFailureCategory
+        : null,
     },
     tokenStats: {
       claudeCode: parseClaudeTokens(tokenStats.claudeCode),
@@ -573,6 +595,7 @@ function cloneState(state: SprintlySessionState): SprintlySessionState {
       recoveredFailures: state.buildFailures.recoveredFailures,
       failureStreak: state.buildFailures.failureStreak,
       maxFailureStreak: state.buildFailures.maxFailureStreak,
+      lastFailureCategory: state.buildFailures.lastFailureCategory,
     },
     tokenStats: {
       claudeCode: state.tokenStats.claudeCode

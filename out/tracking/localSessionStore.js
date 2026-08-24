@@ -475,6 +475,7 @@ function fromSessionContract(session) {
             recoveredFailures: failures.recoveredFailures,
             failureStreak: failures.failureStreak,
             maxFailureStreak: failures.maxFailureStreak ?? failures.failureStreak,
+            lastFailureCategory: null,
         },
         archetype: session.archetype.primaryArchetype,
         traits: [...session.archetype.secondaryTraits],
@@ -577,6 +578,9 @@ function normalizeRecord(value, completed) {
             recoveredFailures: safeNumber(failures.recoveredFailures),
             failureStreak: safeNumber(failures.failureStreak),
             maxFailureStreak: safeNumber(failures.maxFailureStreak),
+            lastFailureCategory: typeof failures.lastFailureCategory === 'string'
+                ? failures.lastFailureCategory
+                : null,
         },
         archetype: typeof value.archetype === 'string'
             ? value.archetype
@@ -620,6 +624,7 @@ function createEmptyRecord(id, startedAt) {
             recoveredFailures: 0,
             failureStreak: 0,
             maxFailureStreak: 0,
+            lastFailureCategory: null,
         },
         archetype: 'Steady Builder',
         traits: [],

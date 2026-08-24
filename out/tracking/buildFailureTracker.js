@@ -24,6 +24,12 @@ class BuildFailureTracker {
         this.store = store;
         this.disposables = [];
         this.integratedTerminals = new Set();
+        /**
+         * Execution-end events are processed strictly in arrival order. Output
+         * reading is asynchronous, so an unordered run could store a success before
+         * its preceding failure (audit Bug #9).
+         */
+        this.executionQueue = Promise.resolve();
         for (const terminal of vscode.window.terminals) {
             if (terminal.shellIntegration) {
                 this.integratedTerminals.add(terminal);
@@ -34,7 +40,9 @@ class BuildFailureTracker {
         }), vscode.window.onDidCloseTerminal((terminal) => {
             this.integratedTerminals.delete(terminal);
         }), vscode.window.onDidEndTerminalShellExecution((event) => {
-            void this.handleExecutionEnd(event).catch(() => undefined);
+            this.executionQueue = this.executionQueue
+                .then(() => this.handleExecutionEnd(event))
+                .then(() => undefined, () => undefined);
         }));
     }
     dispose() {
@@ -57,12 +65,12 @@ class BuildFailureTracker {
         if (!this.store.isCapturing(occurredAt)) {
             return;
         }
+        const commandLine = event.execution.commandLine?.value ?? '';
         if (event.exitCode === 0) {
-            this.store.addSuccessfulRun(occurredAt);
+            this.store.addSuccessfulRun((0, terminalCommands_1.classifyTerminalCommand)(commandLine), occurredAt);
             return;
         }
         const output = await readBoundedOutput(event.execution);
-        const commandLine = event.execution.commandLine?.value ?? '';
         const category = categorizeFailure(output, commandLine);
         this.store.addBuildFailure(category, occurredAt);
     }

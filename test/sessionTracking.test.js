@@ -265,7 +265,7 @@ test('terminal failures count only when their execution ends inside a session', 
   }
 });
 
-test('successful terminal runs recover a failure streak', async () => {
+test('recovery requires a same-family successful execution, not any success', async () => {
   const originalNow = Date.now;
   let now = 6_000;
   Date.now = () => now;
@@ -273,29 +273,50 @@ test('successful terminal runs recover a failure streak', async () => {
     const store = new DailyStateStore(new TestMemento(), () => now);
     store.startSession(now, 'recovery-session');
     const tracker = new BuildFailureTracker(store);
-    const event = {
+    const failureEvent = {
       terminal,
       shellIntegration: terminal.shellIntegration,
       exitCode: 1,
       execution: {
+        commandLine: { value: 'npm test' },
         async *read() {
           yield 'tests failed';
         },
       },
     };
 
-    endShellExecution.fire(event);
+    endShellExecution.fire(failureEvent);
     await new Promise((resolve) => setImmediate(resolve));
     now = 6_100;
-    endShellExecution.fire({ ...event, exitCode: 0 });
+    // An unrelated successful command breaks the streak but recovers nothing.
+    endShellExecution.fire({
+      ...failureEvent,
+      exitCode: 0,
+      execution: { commandLine: { value: 'ls -la' }, async *read() {} },
+    });
     await new Promise((resolve) => setImmediate(resolve));
 
-    const failures = store.get().buildFailures;
+    let failures = store.get().buildFailures;
     assert.equal(failures.total, 1);
-    assert.equal(failures.recoveredFailures, 1);
+    assert.equal(failures.recoveredFailures, 0);
     assert.equal(failures.failureStreak, 0);
-    assert.equal(failures.maxFailureStreak, 1);
     assert.equal(failures.successfulRuns, 1);
+
+    // A retry in the same tool family is legitimate recovery evidence.
+    endShellExecution.fire(failureEvent);
+    await new Promise((resolve) => setImmediate(resolve));
+    now = 6_200;
+    endShellExecution.fire({
+      ...failureEvent,
+      exitCode: 0,
+      execution: { commandLine: { value: 'npm test' }, async *read() {} },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    failures = store.get().buildFailures;
+    assert.equal(failures.total, 2);
+    assert.equal(failures.recoveredFailures, 1);
+    assert.equal(failures.maxFailureStreak, 1);
     tracker.dispose();
   } finally {
     Date.now = originalNow;
