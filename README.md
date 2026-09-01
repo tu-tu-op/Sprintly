@@ -25,6 +25,17 @@ reported as unknown bulk edits rather than being called AI-generated.
 - `Sprintly: Export DevStrava Data`, `Import DevStrava Data`
 - `Connect to DevStrava Website`, `Share Session`, `Sync History`, `Join DevStrava Leaderboard`
 
+## Local development
+
+Install dependencies, compile the extension, and run the test suite with:
+
+```bash
+npm install
+npm test
+```
+
+Press `F5` in VS Code to launch the extension in an Extension Development Host.
+
 ## Website handoff
 
 The current repository has no production authenticated website API. Explicit
