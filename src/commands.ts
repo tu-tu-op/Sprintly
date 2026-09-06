@@ -601,9 +601,10 @@ function showSyncResult(result: SyncOperationResult, label: string): void {
     );
     return;
   }
-  void vscode.window.showErrorMessage(
-    `${label} failed: ${result.error ?? result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ') ?? 'See Sprintly: View Sync Status.'}`,
-  );
+  const details = result.error
+    || result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ')
+    || 'See Sprintly: View Sync Status.';
+  void vscode.window.showErrorMessage(`${label} failed: ${details}`);
 }
 
 function formatSyncStatus(status: ReturnType<SprintlySyncService['getStatus']>): string {

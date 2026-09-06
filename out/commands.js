@@ -466,7 +466,10 @@ function showSyncResult(result, label) {
         void vscode.window.showWarningMessage(`${label} partially complete: ${result.syncedCount + result.duplicateCount} synced, ${result.rejected.length} rejected. ${result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ')}`);
         return;
     }
-    void vscode.window.showErrorMessage(`${label} failed: ${result.error ?? result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ') ?? 'See Sprintly: View Sync Status.'}`);
+    const details = result.error
+        || result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ')
+        || 'See Sprintly: View Sync Status.';
+    void vscode.window.showErrorMessage(`${label} failed: ${details}`);
 }
 function formatSyncStatus(status) {
     const lastSuccess = status.lastSuccessfulSync
