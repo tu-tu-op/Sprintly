@@ -60,6 +60,7 @@ export class SprintlySyncService {
   private readonly pairingAdapter: SprintlyPairingAdapter;
   private readonly now: () => number;
   private readonly listeners = new Set<() => void>();
+  private syncInFlight: Promise<SyncOperationResult> | null = null;
 
   constructor(private readonly options: SprintlySyncServiceOptions) {
     this.readSettings = options.readSettings ?? getSprintlyConnectionSettings;
@@ -228,7 +229,22 @@ export class SprintlySyncService {
     return result;
   }
 
-  private async syncEntries(entries: readonly SyncOutboxEntry[]): Promise<SyncOperationResult> {
+  private syncEntries(entries: readonly SyncOutboxEntry[]): Promise<SyncOperationResult> {
+    if (this.syncInFlight) return this.syncInFlight;
+    const operation = this.performSyncEntries(entries);
+    this.syncInFlight = operation;
+    void operation.then(
+      () => {
+        if (this.syncInFlight === operation) this.syncInFlight = null;
+      },
+      () => {
+        if (this.syncInFlight === operation) this.syncInFlight = null;
+      },
+    );
+    return operation;
+  }
+
+  private async performSyncEntries(entries: readonly SyncOutboxEntry[]): Promise<SyncOperationResult> {
     if (!entries.length) {
       return emptyResult('queued');
     }

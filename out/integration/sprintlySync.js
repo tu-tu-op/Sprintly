@@ -10,6 +10,7 @@ class SprintlySyncService {
     constructor(options) {
         this.options = options;
         this.listeners = new Set();
+        this.syncInFlight = null;
         this.readSettings = options.readSettings ?? connectionSettings_1.getSprintlyConnectionSettings;
         this.createClient = options.createClient
             ?? ((settings, token) => new sprintlyApi_1.SprintlyApiClient({ baseUrl: settings.apiUrl, token }));
@@ -162,7 +163,21 @@ class SprintlySyncService {
         result.warnings = mapped.warnings.map((warning) => `${warning.field}: ${warning.message}`);
         return result;
     }
-    async syncEntries(entries) {
+    syncEntries(entries) {
+        if (this.syncInFlight)
+            return this.syncInFlight;
+        const operation = this.performSyncEntries(entries);
+        this.syncInFlight = operation;
+        void operation.then(() => {
+            if (this.syncInFlight === operation)
+                this.syncInFlight = null;
+        }, () => {
+            if (this.syncInFlight === operation)
+                this.syncInFlight = null;
+        });
+        return operation;
+    }
+    async performSyncEntries(entries) {
         if (!entries.length) {
             return emptyResult('queued');
         }
