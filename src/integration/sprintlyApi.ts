@@ -88,7 +88,7 @@ export class SprintlyApiClient {
   }
 
   async health(): Promise<SprintlyHealthResponse> {
-    const response = await this.send('GET', '/api/extension/health');
+    const response = await this.send('GET', '/api/extension/health', undefined, false);
     const body = parseJsonObject(response.body);
     if (response.status < 200 || response.status >= 300) {
       throw apiErrorFromResponse(response.status, body, 'Health check failed');
@@ -162,12 +162,17 @@ export class SprintlyApiClient {
     return parseUploadResult(body, sessions, false);
   }
 
-  private async send(method: 'GET' | 'POST', path: string, body?: string): Promise<HttpResponse> {
+  private async send(
+    method: 'GET' | 'POST',
+    path: string,
+    body?: string,
+    includeAuth = method === 'POST',
+  ): Promise<HttpResponse> {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
     }
-    if (this.token) {
+    if (includeAuth && this.token) {
       headers.Authorization = `Bearer ${this.token}`;
     }
     try {

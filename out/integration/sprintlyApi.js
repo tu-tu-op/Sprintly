@@ -23,7 +23,7 @@ class SprintlyApiClient {
         this.timeoutMs = options.timeoutMs ?? 15000;
     }
     async health() {
-        const response = await this.send('GET', '/api/extension/health');
+        const response = await this.send('GET', '/api/extension/health', undefined, false);
         const body = parseJsonObject(response.body);
         if (response.status < 200 || response.status >= 300) {
             throw apiErrorFromResponse(response.status, body, 'Health check failed');
@@ -78,12 +78,12 @@ class SprintlyApiClient {
         }
         return parseUploadResult(body, sessions, false);
     }
-    async send(method, path, body) {
+    async send(method, path, body, includeAuth = method === 'POST') {
         const headers = { Accept: 'application/json' };
         if (body !== undefined) {
             headers['Content-Type'] = 'application/json';
         }
-        if (this.token) {
+        if (includeAuth && this.token) {
             headers.Authorization = `Bearer ${this.token}`;
         }
         try {
