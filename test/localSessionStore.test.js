@@ -127,6 +127,9 @@ test('manual website export uses contract plus numeric schemaVersion one', () =>
   assert.equal(websiteExport.payload.sessions[0].sessionId, 'sess_website_export');
   assert.equal('rawCommand' in websiteExport.payload.sessions[0], false);
   assert.equal(JSON.stringify(websiteExport.payload).includes('promptText'), false);
+  const restored = new LocalSessionStore(new TestMemento());
+  assert.equal(restored.import(websiteExport.payload), 1);
+  assert.equal(restored.list()[0].id, 'sess_website_export');
 });
 
 test('history is isolated by the supplied workspace storage', () => {
