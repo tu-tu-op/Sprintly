@@ -11,6 +11,7 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
 };
 const { SprintlyApiError } = require('../out/integration/sprintlyApi');
 const { SprintlySyncService } = require('../out/integration/sprintlySync');
+const { DelegatingPairingAdapter } = require('../out/integration/pairing');
 const { SprintlyTokenStore } = require('../out/integration/secureTokenStore');
 const { SyncOutbox } = require('../out/integration/syncOutbox');
 const { SyncStateStore } = require('../out/integration/syncState');
@@ -156,4 +157,39 @@ test('revoked device clears credentials without deleting the local queue', async
   assert.equal(setupValue.stateStore.get().connectionStatus, 'revoked');
   assert.equal(await setupValue.secrets.get('sprintly.extension.developmentToken'), undefined);
   assert.equal(setupValue.outbox.get('sync-session').state, 'failed');
+});
+
+test('production pairing stores a device token and uses it for the next upload', async () => {
+  const memento = new TestMemento();
+  const secrets = {
+    values: new Map(),
+    get: async (key) => secrets.values.get(key),
+    store: async (key, value) => secrets.values.set(key, value),
+    delete: async (key) => secrets.values.delete(key),
+  };
+  const outbox = new SyncOutbox(memento);
+  const stateStore = new SyncStateStore(memento);
+  const usedTokens = [];
+  const service = new SprintlySyncService({
+    tokenStore: new SprintlyTokenStore(secrets), outbox, stateStore,
+    readSettings: () => ({
+      apiUrl: 'https://sprintly.example', environment: 'production', syncPreference: 'completed',
+      leaderboardOptIn: false, developmentToken: '', websiteUrl: 'https://sprintly.example/connect',
+    }),
+    pairingAdapter: new DelegatingPairingAdapter(async ({ code }) => ({ ok: true, deviceToken: `device-${code}` })),
+    createClient: (_settings, token) => {
+      usedTokens.push(token);
+      return {
+        async health() { return { ok: true, contract: 'devstrava.session.v1', schemaVersion: 1 }; },
+        async uploadSessions(sessions) {
+          return { acceptedSessionIds: sessions.map((entry) => entry.sessionId), duplicateSessionIds: [], rejected: [] };
+        },
+      };
+    },
+  });
+  await service.connectWithPairingCode('pair-code');
+  assert.equal(await secrets.get('sprintly.extension.deviceToken'), 'device-pair-code');
+  const result = await service.syncCompletedSession(record());
+  assert.equal(result.state, 'synced');
+  assert.deepEqual(usedTokens, ['device-pair-code', 'device-pair-code']);
 });
