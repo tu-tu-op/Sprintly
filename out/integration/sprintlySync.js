@@ -122,6 +122,10 @@ class SprintlySyncService {
         const blocked = this.sessionUploadPolicy(settings, manual);
         if (blocked)
             return blocked;
+        if (manual) {
+            this.options.outbox.retryFailed();
+            this.notify();
+        }
         const entries = this.options.outbox.list().filter((entry) => {
             if (entry.state !== 'pending')
                 return false;
