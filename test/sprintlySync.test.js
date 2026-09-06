@@ -149,6 +149,26 @@ test('permanent validation error is retained as a failed record', async () => {
   assert.deepEqual(result.rejected, [{ sessionId: 'sync-session', reason: 'bad score' }]);
 });
 
+test('manual pending sync retries a previously permanent failure', async () => {
+  let attempt = 0;
+  const setupValue = setup({}, () => {
+    attempt += 1;
+    if (attempt === 1) {
+      throw new SprintlyApiError('invalid payload', {
+        kind: 'validation', retryable: false,
+        rejected: [{ sessionId: 'sync-session', reason: 'temporary website rule' }],
+      });
+    }
+    return { acceptedSessionIds: ['sync-session'], duplicateSessionIds: [], rejected: [] };
+  });
+  await setupValue.service.syncCompletedSession(record());
+  assert.equal(setupValue.outbox.get('sync-session').state, 'failed');
+  const retry = await setupValue.service.syncPendingSessions(true);
+  assert.equal(retry.state, 'synced');
+  assert.equal(setupValue.outbox.get('sync-session').state, 'synced');
+  assert.equal(setupValue.uploadCalls, 2);
+});
+
 test('revoked device clears credentials without deleting the local queue', async () => {
   const setupValue = setup({}, () => {
     throw new SprintlyApiError('device revoked', { kind: 'revoked-device', retryable: false });
