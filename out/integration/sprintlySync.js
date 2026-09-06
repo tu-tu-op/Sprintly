@@ -93,6 +93,11 @@ class SprintlySyncService {
         this.options.stateStore.markDisconnected();
         await this.flushState();
     }
+    async setDevelopmentToken(token) {
+        await this.options.tokenStore.storeDevelopmentToken(token);
+        this.options.stateStore.markDisconnected();
+        await this.flushState();
+    }
     /** Queue and immediately attempt a user-selected session. */
     async syncCurrentSession(record) {
         return this.queueAndSync(record, true);

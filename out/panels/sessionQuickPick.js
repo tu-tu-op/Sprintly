@@ -8,7 +8,7 @@ const pricing_1 = require("../tracking/pricing");
 const developerMetrics_1 = require("../tracking/developerMetrics");
 const privacySettings_1 = require("../tracking/privacySettings");
 exports.SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
-async function showStatusPanel(tracker, sessionStore, historyStore) {
+async function showStatusPanel(tracker, sessionStore, historyStore, syncService) {
     let trackerStats = tracker.get();
     let sessionState = sessionStore.get();
     const quickPick = vscode.window.createQuickPick();
@@ -34,7 +34,7 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
         const summary = buildSessionPanelSummary(trackerStats, sessionState, latestRecord());
         quickPick.title = `$(pulse) Sprintly · ${summary.scope}`;
         quickPick.placeholder = panelPlaceholder(summary.status);
-        quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore, latestRecord());
+        quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore, latestRecord(), syncService?.getStatus());
     };
     const trackerSubscription = tracker.onDidUpdate.event((next) => {
         trackerStats = next;
@@ -44,6 +44,7 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
         sessionState = next;
         render();
     });
+    const syncSubscription = syncService?.onDidChange(render) ?? { dispose: () => undefined };
     quickPick.onDidTriggerButton((button) => {
         const icon = button.iconPath instanceof vscode.ThemeIcon ? button.iconPath.id : '';
         if (icon === 'refresh') {
@@ -79,6 +80,7 @@ async function showStatusPanel(tracker, sessionStore, historyStore) {
     quickPick.onDidHide(() => {
         trackerSubscription.dispose();
         storeSubscription.dispose();
+        syncSubscription.dispose();
         quickPick.dispose();
     });
     render();
@@ -115,7 +117,7 @@ function buildSessionPanelSummary(trackerStats, state, record) {
         buildFailures: describeFailures(state, record),
     };
 }
-function buildPanelItems(tracker, trackerStats, state, summary, historyStore, record) {
+function buildPanelItems(tracker, trackerStats, state, summary, historyStore, record, syncStatus) {
     const items = [
         separator('SESSION'),
         item(statusIcon(summary.status), summary.status, summary.duration, state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
@@ -137,6 +139,13 @@ function buildPanelItems(tracker, trackerStats, state, summary, historyStore, re
         const history = historyStore.getAggregates('all');
         const controlCount = buildControlItems(trackerStats, state).length;
         items.splice(items.length - controlCount, 0, separator('LOCAL HISTORY'), metricItem('history', 'Session history', `${history.sessions} completed · ${formatCompactDuration(history.codingTimeMs)} coding`, 'history'));
+    }
+    if (syncStatus) {
+        items.push(separator('WEBSITE SYNC'), item(syncStatus.connectionStatus === 'connected' ? 'cloud' : 'cloud-offline', syncStatus.connectionStatus === 'connected' ? 'Website connected' : 'Website disconnected', `${syncStatus.pendingCount} pending Â· ${syncStatus.failedCount} failed`, `${syncStatus.environment} Â· ${syncStatus.syncPreference}${syncStatus.localOnly ? ' Â· local-only' : ''}`), syncStatus.lastSuccessfulSync
+            ? item('check', 'Last successful sync', new Date(syncStatus.lastSuccessfulSync).toLocaleString())
+            : item('clock', 'Last successful sync', 'Never'), ...(syncStatus.lastSyncError
+            ? [item('warning', 'Last sync error', syncStatus.lastSyncError)]
+            : []), actionItem('cloud-upload', 'Sync Pending Sessions', 'Retry queued and failed sessions', 'syncPending'), actionItem('plug', 'Test Connection', `Check ${syncStatus.apiUrl}`, 'testConnection'), actionItem('info', 'View Sync Status', 'Show connection and queue details', 'viewSyncStatus'));
     }
     return items;
 }
@@ -250,6 +259,10 @@ function runPanelAction(action) {
         reset: 'sprintly.resetSession',
         settings: 'workbench.action.openSettings',
         viewWebsite: 'sprintly.connectWebsite',
+        syncCurrent: 'sprintly.syncCurrentSession',
+        syncPending: 'sprintly.syncPendingSessions',
+        testConnection: 'sprintly.testConnection',
+        viewSyncStatus: 'sprintly.viewSyncStatus',
     };
     const args = action === 'settings' ? ['sprintly'] : [];
     void vscode.commands.executeCommand(commands[action], ...args);

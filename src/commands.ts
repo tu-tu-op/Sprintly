@@ -18,6 +18,8 @@ import {
   WebsiteHandoffService,
 } from './tracking/websiteHandoff';
 import { getPrivacySettings } from './tracking/privacySettings';
+import { SprintlySyncService, SyncOperationResult } from './integration/sprintlySync';
+import { environmentLabel, getSprintlyConnectionSettings } from './integration/connectionSettings';
 
 interface StatusBarUpdater {
   update(): void;
@@ -60,6 +62,7 @@ export function registerCommands(
   agentLogWatcher: AgentLogWatcher,
   historyStore: LocalSessionStore,
   handoff = new WebsiteHandoffService(),
+  syncService?: SprintlySyncService,
 ): LifecycleControls {
   const refresh = (): void => statusBar.update();
 
@@ -172,6 +175,7 @@ export function registerCommands(
     agentLogWatcher.stop();
     refresh();
     await persistOrWarn();
+    triggerCompletedSync(syncService, record);
     void vscode.window.showInformationMessage(
       `Sprintly session ended: ${record?.edits ?? 0} edits · ${Math.floor((record?.activeDurationMs ?? 0) / 60_000)}m`,
     );
@@ -226,9 +230,22 @@ export function registerCommands(
   };
 
   const exportData = async (): Promise<void> => {
-    const result = await handoff.savePayload(historyStore.export(), defaultExportFileName(), false);
-    if (result) {
-      void vscode.window.showInformationMessage(`DevStrava data exported to ${result.uri.fsPath}.`);
+    try {
+      const exported = historyStore.exportSprintly();
+      const result = await handoff.savePayload(exported.payload, defaultExportFileName(), false);
+      if (result) {
+        if (exported.warnings.length) {
+          void vscode.window.showWarningMessage(
+            `Exported ${exported.payload.sessions.length} session${exported.payload.sessions.length === 1 ? '' : 's'} with ${exported.warnings.length} compatibility note${exported.warnings.length === 1 ? '' : 's'}. Website-supported fields were written; local-only details remain local.`,
+          );
+        } else {
+          void vscode.window.showInformationMessage(`DevStrava data exported to ${result.uri.fsPath}.`);
+        }
+      }
+    } catch (error) {
+      void vscode.window.showErrorMessage(
+        error instanceof Error ? error.message : 'Sprintly could not create the export.',
+      );
     }
   };
 
@@ -256,6 +273,110 @@ export function registerCommands(
     }
   };
 
+  const setDevelopmentToken = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const token = await vscode.window.showInputBox({
+      title: 'Sprintly Development Token',
+      prompt: 'Paste the local development bearer token. It will be stored in VS Code SecretStorage.',
+      password: true,
+      ignoreFocusOut: true,
+      validateInput: (value) => value.trim() ? undefined : 'A development token is required.',
+    });
+    if (token === undefined) return;
+    try {
+      await syncService.setDevelopmentToken(token);
+      void vscode.window.showInformationMessage('Sprintly development token stored securely.');
+    } catch (error) {
+      void vscode.window.showErrorMessage(errorMessage(error));
+    }
+  };
+
+  const connect = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const settings = getSprintlyConnectionSettings();
+    try {
+      if (settings.environment === 'development') {
+        await syncService.connectDevelopment();
+      } else {
+        const opened = await handoff.connectWebsite();
+        if (!opened) {
+          void vscode.window.showErrorMessage('Sprintly pairing page could not be opened.');
+          return;
+        }
+        const code = await vscode.window.showInputBox({
+          title: 'Sprintly Pairing Code',
+          prompt: 'Sign in on the Sprintly website, then paste the short-lived pairing code here.',
+          ignoreFocusOut: true,
+          validateInput: (value) => value.trim() ? undefined : 'A pairing code is required.',
+        });
+        if (code === undefined) return;
+        await syncService.connectWithPairingCode(code);
+      }
+      void vscode.window.showInformationMessage(
+        `Sprintly connected to ${environmentLabel(settings.environment)} at ${settings.apiUrl}.`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Sprintly connection failed: ${errorMessage(error)}`);
+    }
+  };
+
+  const testConnection = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const settings = getSprintlyConnectionSettings();
+    try {
+      await syncService.testConnection();
+      void vscode.window.showInformationMessage(
+        `Sprintly API is healthy (${environmentLabel(settings.environment)} · ${settings.apiUrl}).`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Sprintly connection test failed: ${errorMessage(error)}`);
+    }
+  };
+
+  const syncCurrentSession = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const record = await chooseSession(historyStore, 'Choose a completed session to sync');
+    if (!record) return;
+    const result = await syncService.syncCurrentSession(record);
+    showSyncResult(result, 'Session sync');
+  };
+
+  const syncPendingSessions = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const result = await syncService.syncPendingSessions(true);
+    showSyncResult(result, 'Pending session sync');
+  };
+
+  const viewSyncStatus = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const status = syncService.getStatus();
+    await vscode.window.showInformationMessage(formatSyncStatus(status));
+  };
+
+  const disconnect = async (): Promise<void> => {
+    if (!syncService) return;
+    await syncService.disconnect();
+    void vscode.window.showInformationMessage('Sprintly disconnected. Local session recording remains enabled.');
+  };
+
   const shareSession = async (): Promise<void> => {
     const record = await chooseSession(historyStore, 'Choose a completed session to share');
     if (!record) return;
@@ -274,6 +395,11 @@ export function registerCommands(
   };
 
   const syncHistory = async (): Promise<void> => {
+    if (syncService) {
+      const result = await syncService.syncPendingSessions(true);
+      showSyncResult(result, 'Pending session sync');
+      return;
+    }
     if (!getPrivacySettings().cloudSyncEnabled) {
       void vscode.window.showInformationMessage(
         'History sync is off. Enable sprintly.cloudSyncEnabled, then invoke Sync History explicitly.',
@@ -291,6 +417,12 @@ export function registerCommands(
   };
 
   const joinLeaderboard = async (): Promise<void> => {
+    if (!getPrivacySettings().leaderboardOptIn) {
+      void vscode.window.showInformationMessage(
+        'Leaderboard sharing is off. Enable sprintly.leaderboardOptIn and choose leaderboard sync explicitly.',
+      );
+      return;
+    }
     const result = await handoff.savePayload(
       createLeaderboardPayload(historyStore.list()),
       `devstrava-leaderboard-${datePart(Date.now())}.json`,
@@ -317,7 +449,8 @@ export function registerCommands(
       if (sessionStore.get().session.isActive) {
         const endedAt = Date.now();
         sessionStore.stopSession(endedAt);
-        syncDraft(true, endedAt);
+        const record = syncDraft(true, endedAt);
+        triggerCompletedSync(syncService, record);
         void vscode.window.showInformationMessage(
           'Sprintly was disabled. The active session was ended and saved.',
         );
@@ -342,13 +475,20 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.eraseAllData', eraseAllData),
     vscode.commands.registerCommand('sprintly.exportData', exportData),
     vscode.commands.registerCommand('sprintly.importData', importData),
+    vscode.commands.registerCommand('sprintly.setDevelopmentToken', setDevelopmentToken),
+    vscode.commands.registerCommand('sprintly.connect', connect),
+    vscode.commands.registerCommand('sprintly.testConnection', testConnection),
+    vscode.commands.registerCommand('sprintly.syncCurrentSession', syncCurrentSession),
+    vscode.commands.registerCommand('sprintly.syncPendingSessions', syncPendingSessions),
+    vscode.commands.registerCommand('sprintly.viewSyncStatus', viewSyncStatus),
+    vscode.commands.registerCommand('sprintly.disconnect', disconnect),
     vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite),
     vscode.commands.registerCommand('sprintly.shareSession', shareSession),
     vscode.commands.registerCommand('sprintly.syncHistory', syncHistory),
     vscode.commands.registerCommand('sprintly.joinLeaderboard', joinLeaderboard),
     vscode.commands.registerCommand('sprintly.saveSession', exportData),
-    vscode.commands.registerCommand(SESSION_PANEL_COMMAND, () => showStatusPanel(tracker, sessionStore, historyStore)),
-    vscode.commands.registerCommand('sprintly.openPanel', () => showStatusPanel(tracker, sessionStore, historyStore)),
+    vscode.commands.registerCommand(SESSION_PANEL_COMMAND, () => showStatusPanel(tracker, sessionStore, historyStore, syncService)),
+    vscode.commands.registerCommand('sprintly.openPanel', () => showStatusPanel(tracker, sessionStore, historyStore, syncService)),
   );
 
   return { handleMasterToggle };
@@ -420,4 +560,64 @@ async function chooseSession(
 
 function datePart(timestamp: number): string {
   return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function triggerCompletedSync(
+  syncService: SprintlySyncService | undefined,
+  record: SessionHistoryRecord | null,
+): void {
+  if (!syncService || !record) return;
+  void syncService.syncCompletedSession(record).then((result) => {
+    // Automatic sync is deliberately quiet; the durable status and Quick
+    // Panel expose errors without interrupting the end-of-session flow.
+    if (result.state === 'partial') {
+      void vscode.window.showWarningMessage(
+        `Sprintly uploaded the session with ${result.rejected.length} rejected record${result.rejected.length === 1 ? '' : 's'}. View Sync Status for details.`,
+      );
+    }
+  }).catch(() => undefined);
+}
+
+function showSyncResult(result: SyncOperationResult, label: string): void {
+  if (result.state === 'skipped') {
+    void vscode.window.showInformationMessage(`${label} skipped: ${result.error ?? 'sync policy does not allow this upload.'}`);
+    return;
+  }
+  if (result.state === 'synced') {
+    const duplicateText = result.duplicateCount
+      ? ` ${result.duplicateCount} duplicate${result.duplicateCount === 1 ? '' : 's'} treated as already synced.`
+      : '';
+    void vscode.window.showInformationMessage(
+      `${label} complete: ${result.syncedCount} accepted.${duplicateText}`,
+    );
+    return;
+  }
+  if (result.state === 'partial') {
+    void vscode.window.showWarningMessage(
+      `${label} partially complete: ${result.syncedCount + result.duplicateCount} synced, ${result.rejected.length} rejected. ${result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ')}`,
+    );
+    return;
+  }
+  void vscode.window.showErrorMessage(
+    `${label} failed: ${result.error ?? result.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ') ?? 'See Sprintly: View Sync Status.'}`,
+  );
+}
+
+function formatSyncStatus(status: ReturnType<SprintlySyncService['getStatus']>): string {
+  const lastSuccess = status.lastSuccessfulSync
+    ? new Date(status.lastSuccessfulSync).toLocaleString()
+    : 'Never';
+  const error = status.lastSyncError ? `\nLast error: ${status.lastSyncError}` : '';
+  return [
+    `Sprintly sync: ${status.connectionStatus}`,
+    `Environment: ${environmentLabel(status.environment)}`,
+    `API: ${status.apiUrl}`,
+    `Preference: ${status.syncPreference}${status.localOnly ? ' (local-only)' : ''}`,
+    `Pending: ${status.pendingCount} · Failed: ${status.failedCount}`,
+    `Last successful sync: ${lastSuccess}${error}`,
+  ].join('\n');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'The requested Sprintly operation failed.';
 }

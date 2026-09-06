@@ -9,11 +9,23 @@ import {
 } from '../tracking/developerMetrics';
 import { getPrivacySettings } from '../tracking/privacySettings';
 import { LocalSessionStore, SessionHistoryRecord } from '../tracking/localSessionStore';
+import type { SprintlySyncService, SprintlySyncStatus } from '../integration/sprintlySync';
 
 export const SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 
 type MetricDetail = 'coding' | 'prompts' | 'failures' | 'tokens' | 'history';
-type PanelAction = 'start' | 'pause' | 'resume' | 'stop' | 'reset' | 'settings' | 'viewWebsite';
+type PanelAction =
+  | 'start'
+  | 'pause'
+  | 'resume'
+  | 'stop'
+  | 'reset'
+  | 'settings'
+  | 'viewWebsite'
+  | 'syncCurrent'
+  | 'syncPending'
+  | 'testConnection'
+  | 'viewSyncStatus';
 
 interface SessionPanelItem extends vscode.QuickPickItem {
   metric?: MetricDetail;
@@ -36,6 +48,7 @@ export async function showStatusPanel(
   tracker: SessionTracker,
   sessionStore: DailyStateStore,
   historyStore?: LocalSessionStore,
+  syncService?: SprintlySyncService,
 ): Promise<void> {
   let trackerStats = tracker.get();
   let sessionState = sessionStore.get();
@@ -65,7 +78,15 @@ export async function showStatusPanel(
     const summary = buildSessionPanelSummary(trackerStats, sessionState, latestRecord());
     quickPick.title = `$(pulse) Sprintly · ${summary.scope}`;
     quickPick.placeholder = panelPlaceholder(summary.status);
-    quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore, latestRecord());
+    quickPick.items = buildPanelItems(
+      tracker,
+      trackerStats,
+      sessionState,
+      summary,
+      historyStore,
+      latestRecord(),
+      syncService?.getStatus(),
+    );
   };
 
   const trackerSubscription = tracker.onDidUpdate.event((next) => {
@@ -76,6 +97,7 @@ export async function showStatusPanel(
     sessionState = next;
     render();
   });
+  const syncSubscription = syncService?.onDidChange(render) ?? { dispose: () => undefined };
 
   quickPick.onDidTriggerButton((button) => {
     const icon = button.iconPath instanceof vscode.ThemeIcon ? button.iconPath.id : '';
@@ -114,6 +136,7 @@ export async function showStatusPanel(
   quickPick.onDidHide(() => {
     trackerSubscription.dispose();
     storeSubscription.dispose();
+    syncSubscription.dispose();
     quickPick.dispose();
   });
 
@@ -165,6 +188,7 @@ function buildPanelItems(
   summary: SessionPanelSummary,
   historyStore?: LocalSessionStore,
   record?: SessionHistoryRecord | null,
+  syncStatus?: SprintlySyncStatus,
 ): SessionPanelItem[] {
   const items: SessionPanelItem[] = [
     separator('SESSION'),
@@ -235,6 +259,27 @@ function buildPanelItems(
         `${history.sessions} completed · ${formatCompactDuration(history.codingTimeMs)} coding`,
         'history',
       ),
+    );
+  }
+
+  if (syncStatus) {
+    items.push(
+      separator('WEBSITE SYNC'),
+      item(
+        syncStatus.connectionStatus === 'connected' ? 'cloud' : 'cloud-offline',
+        syncStatus.connectionStatus === 'connected' ? 'Website connected' : 'Website disconnected',
+        `${syncStatus.pendingCount} pending Â· ${syncStatus.failedCount} failed`,
+        `${syncStatus.environment} Â· ${syncStatus.syncPreference}${syncStatus.localOnly ? ' Â· local-only' : ''}`,
+      ),
+      syncStatus.lastSuccessfulSync
+        ? item('check', 'Last successful sync', new Date(syncStatus.lastSuccessfulSync).toLocaleString())
+        : item('clock', 'Last successful sync', 'Never'),
+      ...(syncStatus.lastSyncError
+        ? [item('warning', 'Last sync error', syncStatus.lastSyncError)]
+        : []),
+      actionItem('cloud-upload', 'Sync Pending Sessions', 'Retry queued and failed sessions', 'syncPending'),
+      actionItem('plug', 'Test Connection', `Check ${syncStatus.apiUrl}`, 'testConnection'),
+      actionItem('info', 'View Sync Status', 'Show connection and queue details', 'viewSyncStatus'),
     );
   }
 
@@ -379,6 +424,10 @@ function runPanelAction(action: PanelAction): void {
     reset: 'sprintly.resetSession',
     settings: 'workbench.action.openSettings',
     viewWebsite: 'sprintly.connectWebsite',
+    syncCurrent: 'sprintly.syncCurrentSession',
+    syncPending: 'sprintly.syncPendingSessions',
+    testConnection: 'sprintly.testConnection',
+    viewSyncStatus: 'sprintly.viewSyncStatus',
   };
   const args = action === 'settings' ? ['sprintly'] : [];
   void vscode.commands.executeCommand(commands[action], ...args);

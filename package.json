@@ -19,6 +19,7 @@
       { "command": "sprintly.exportData",      "title": "Sprintly: Export DevStrava Data", "category": "Sprintly" },
       { "command": "sprintly.importData",      "title": "Sprintly: Import DevStrava Data", "category": "Sprintly" },
       { "command": "sprintly.connect",         "title": "Sprintly: Connect", "category": "Sprintly" },
+      { "command": "sprintly.setDevelopmentToken", "title": "Sprintly: Set Development Token", "category": "Sprintly" },
       { "command": "sprintly.testConnection",  "title": "Sprintly: Test Connection", "category": "Sprintly" },
       { "command": "sprintly.syncCurrentSession", "title": "Sprintly: Sync Current Session", "category": "Sprintly" },
       { "command": "sprintly.syncPendingSessions", "title": "Sprintly: Sync Pending Sessions", "category": "Sprintly" },
