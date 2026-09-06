@@ -319,12 +319,18 @@ function validateSprintlySession(value) {
         errors.push('endedAt must be an ISO date');
     const startedAt = typeof value.startedAt === 'string' ? Date.parse(value.startedAt) : NaN;
     const endedAt = typeof value.endedAt === 'string' ? Date.parse(value.endedAt) : NaN;
-    if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt < startedAt) {
-        errors.push('endedAt must not be before startedAt');
+    if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt <= startedAt) {
+        errors.push('endedAt must be after startedAt');
     }
     const activeDurationSeconds = requireNonNegativeInteger(value.activeDurationSeconds, 'activeDurationSeconds', errors);
     if (activeDurationSeconds < 1)
         errors.push('activeDurationSeconds must be at least 1');
+    if (activeDurationSeconds > 172800)
+        errors.push('activeDurationSeconds must not exceed 172800');
+    if (Number.isFinite(startedAt) && Number.isFinite(endedAt)
+        && activeDurationSeconds > ((endedAt - startedAt) / 1000) + 300) {
+        errors.push('activeDurationSeconds is greater than the elapsed session window');
+    }
     validateCoding(value.coding, errors);
     validateNumericFields(value.activity, ACTIVITY_FIELDS, 'activity', errors);
     validateTerminal(value.terminal, errors);
@@ -394,7 +400,18 @@ function validateScores(value, errors) {
         return;
     }
     errors.push(...unsupportedFields(value, SCORE_FIELDS, 'scores'));
-    validatePercentFields(value, SCORE_FIELDS, 'scores', errors);
+    const percentageScores = new Set([
+        'focus',
+        'testingDiscipline',
+        'recovery',
+        'consistency',
+        'aiBalance',
+    ]);
+    validatePercentFields(value, percentageScores, 'scores', errors);
+    if (!Number.isFinite(value.devScore) || value.devScore < 0
+        || !Number.isInteger(value.devScore) || value.devScore > 1000) {
+        errors.push('scores.devScore must be a non-negative integer at most 1000');
+    }
 }
 function validateArchetype(value, errors) {
     if (!isRecord(value)) {
