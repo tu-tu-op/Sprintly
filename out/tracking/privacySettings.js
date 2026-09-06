@@ -1,13 +1,21 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getPrivacySettings = getPrivacySettings;
+exports.isSyncPreference = isSyncPreference;
 exports.isTelemetryCategoryEnabled = isTelemetryCategoryEnabled;
 const vscode = require("vscode");
+const SYNC_PREFERENCES = [
+    'never',
+    'selected',
+    'completed',
+    'leaderboard',
+];
 function getPrivacySettings() {
     const configuration = vscode.workspace?.getConfiguration
         ? vscode.workspace.getConfiguration('sprintly')
         : undefined;
     const get = (key, fallback) => configuration?.get(key, fallback) ?? fallback;
+    const configuredSyncPreference = get('syncPreference', 'never');
     return {
         enabled: get('enabled', true) !== false,
         autoPromptOnStartup: get('autoPromptOnStartup', true) !== false,
@@ -17,7 +25,12 @@ function getPrivacySettings() {
         trackBuildFailures: get('telemetry.trackBuildFailures', true) !== false,
         cloudSyncEnabled: get('cloudSyncEnabled', false) === true,
         aiTrackingVisible: get('telemetry.showAiTracking', true) !== false,
+        syncPreference: isSyncPreference(configuredSyncPreference) ? configuredSyncPreference : 'never',
+        leaderboardOptIn: get('leaderboardOptIn', false) === true,
     };
+}
+function isSyncPreference(value) {
+    return typeof value === 'string' && SYNC_PREFERENCES.includes(value);
 }
 function isTelemetryCategoryEnabled(category) {
     const settings = getPrivacySettings();

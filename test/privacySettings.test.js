@@ -17,7 +17,7 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const { getPrivacySettings, isTelemetryCategoryEnabled } = require('../out/tracking/privacySettings');
+const { getPrivacySettings, isSyncPreference, isTelemetryCategoryEnabled } = require('../out/tracking/privacySettings');
 Module._load = originalLoad;
 
 test('privacy settings default to local aggregate collection', () => {
@@ -29,6 +29,8 @@ test('privacy settings default to local aggregate collection', () => {
   assert.equal(settings.trackAgentUsage, true);
   assert.equal(settings.trackBuildFailures, true);
   assert.equal(settings.cloudSyncEnabled, false);
+  assert.equal(settings.syncPreference, 'never');
+  assert.equal(settings.leaderboardOptIn, false);
   assert.equal(isTelemetryCategoryEnabled('codingActivity'), true);
 });
 
@@ -45,9 +47,19 @@ test('privacy controls disable only the selected collection boundaries', () => {
   assert.equal(settings.localHistoryEnabled, false);
   assert.equal(settings.trackBuildFailures, true);
   assert.equal(settings.cloudSyncEnabled, true);
+  assert.equal(settings.syncPreference, 'never');
   assert.equal(isTelemetryCategoryEnabled('codingActivity'), false);
   assert.equal(isTelemetryCategoryEnabled('agentUsage'), false);
   assert.equal(isTelemetryCategoryEnabled('buildFailures'), true);
+});
+
+test('sync preference accepts only the explicit privacy modes', () => {
+  configuration = { syncPreference: 'completed', leaderboardOptIn: true };
+  const settings = getPrivacySettings();
+  assert.equal(settings.syncPreference, 'completed');
+  assert.equal(settings.leaderboardOptIn, true);
+  assert.equal(isSyncPreference('selected'), true);
+  assert.equal(isSyncPreference('automatic'), false);
 });
 
 test('the master setting disables every telemetry category', () => {
