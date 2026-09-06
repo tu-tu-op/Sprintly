@@ -1,0 +1,218 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SyncOutbox = exports.DEFAULT_SYNC_OUTBOX_KEY = exports.SYNC_OUTBOX_SCHEMA_VERSION = void 0;
+const sprintlyContract_1 = require("../tracking/sprintlyContract");
+exports.SYNC_OUTBOX_SCHEMA_VERSION = 'sprintly.sync-outbox.v1';
+exports.DEFAULT_SYNC_OUTBOX_KEY = 'sprintly.syncOutbox.v1';
+const DEFAULT_RETRY_BASE_MS = 60000;
+const DEFAULT_RETRY_MAX_MS = 3600000;
+/** Durable, aggregate-only upload queue. No token or local path is persisted. */
+class SyncOutbox {
+    constructor(storage, options = {}) {
+        this.storage = storage;
+        this.persistQueue = Promise.resolve();
+        this.storageKey = options.storageKey ?? exports.DEFAULT_SYNC_OUTBOX_KEY;
+        this.now = options.now ?? Date.now;
+        this.retryBaseMs = positiveInteger(options.retryBaseMs, DEFAULT_RETRY_BASE_MS);
+        this.retryMaxMs = Math.max(this.retryBaseMs, positiveInteger(options.retryMaxMs, DEFAULT_RETRY_MAX_MS));
+        this.onPersistError = options.onError;
+        this.entries = readPersistedEntries(storage.get(this.storageKey));
+        // A process can die while an entry is syncing. It is safe to replay it;
+        // the website uses sessionId for idempotency.
+        let recovered = false;
+        this.entries = this.entries.map((entry) => {
+            if (entry.state !== 'syncing')
+                return entry;
+            recovered = true;
+            return { ...entry, state: 'pending', nextRetryTime: null };
+        });
+        if (recovered)
+            this.persist();
+    }
+    list() {
+        return this.entries.map(cloneEntry);
+    }
+    get(sessionId) {
+        const entry = this.entries.find((candidate) => candidate.sessionId === sessionId);
+        return entry ? cloneEntry(entry) : null;
+    }
+    pendingCount() {
+        return this.entries.filter((entry) => entry.state === 'pending' || entry.state === 'syncing').length;
+    }
+    failedCount() {
+        return this.entries.filter((entry) => entry.state === 'failed').length;
+    }
+    due(now = this.now()) {
+        return this.entries
+            .filter((entry) => entry.state === 'pending' && (entry.nextRetryTime === null || entry.nextRetryTime <= now))
+            .map(cloneEntry);
+    }
+    enqueue(payload, compatibilityWarnings = [], force = false) {
+        const validation = (0, sprintlyContract_1.validateSprintlySession)(payload);
+        if (!validation.ok) {
+            throw new Error(`Cannot queue invalid session: ${validation.errors.join('; ')}`);
+        }
+        const existingIndex = this.entries.findIndex((entry) => entry.sessionId === payload.sessionId);
+        const existing = existingIndex >= 0 ? this.entries[existingIndex] : undefined;
+        if (existing?.state === 'synced' && !force)
+            return cloneEntry(existing);
+        const next = {
+            sessionId: payload.sessionId,
+            payload: clonePayload(payload),
+            state: 'pending',
+            attemptCount: existing && force ? 0 : existing?.attemptCount ?? 0,
+            lastAttemptTime: existing && force ? null : existing?.lastAttemptTime ?? null,
+            nextRetryTime: null,
+            lastError: null,
+            compatibilityWarnings: [...compatibilityWarnings],
+        };
+        if (existingIndex >= 0)
+            this.entries[existingIndex] = next;
+        else
+            this.entries.push(next);
+        this.persist();
+        return cloneEntry(next);
+    }
+    begin(sessionId, now = this.now()) {
+        const entry = this.entries.find((candidate) => candidate.sessionId === sessionId);
+        if (!entry || entry.state === 'synced')
+            return entry ? cloneEntry(entry) : null;
+        entry.state = 'syncing';
+        entry.attemptCount += 1;
+        entry.lastAttemptTime = now;
+        entry.nextRetryTime = null;
+        this.persist();
+        return cloneEntry(entry);
+    }
+    markSynced(sessionId) {
+        const entry = this.entries.find((candidate) => candidate.sessionId === sessionId);
+        if (!entry)
+            return null;
+        entry.state = 'synced';
+        entry.nextRetryTime = null;
+        entry.lastError = null;
+        this.persist();
+        return cloneEntry(entry);
+    }
+    markFailed(sessionId, error, retryable, now = this.now()) {
+        const entry = this.entries.find((candidate) => candidate.sessionId === sessionId);
+        if (!entry)
+            return null;
+        entry.lastError = sanitizeError(error);
+        if (retryable) {
+            entry.state = 'pending';
+            entry.nextRetryTime = now + this.retryDelay(entry.attemptCount);
+        }
+        else {
+            entry.state = 'failed';
+            entry.nextRetryTime = null;
+        }
+        this.persist();
+        return cloneEntry(entry);
+    }
+    retryFailed(sessionId) {
+        let changed = 0;
+        for (const entry of this.entries) {
+            if (entry.state !== 'failed' || (sessionId !== undefined && entry.sessionId !== sessionId))
+                continue;
+            entry.state = 'pending';
+            entry.nextRetryTime = null;
+            entry.lastError = null;
+            changed += 1;
+        }
+        if (changed)
+            this.persist();
+        return changed;
+    }
+    clear() {
+        this.entries = [];
+        this.persist(true);
+    }
+    async flush() {
+        await this.persistQueue;
+        if (this.lastPersistError !== undefined) {
+            const error = this.lastPersistError;
+            this.lastPersistError = undefined;
+            throw error;
+        }
+    }
+    dispose() { }
+    retryDelay(attemptCount) {
+        const exponent = Math.max(0, Math.min(30, attemptCount - 1));
+        return Math.min(this.retryMaxMs, this.retryBaseMs * (2 ** exponent));
+    }
+    persist(force = false) {
+        const snapshot = {
+            schemaVersion: exports.SYNC_OUTBOX_SCHEMA_VERSION,
+            entries: this.entries.map(cloneEntry),
+        };
+        this.persistQueue = this.persistQueue
+            .then(() => this.storage.update(this.storageKey, snapshot))
+            .then(() => undefined, (error) => {
+            this.lastPersistError = error;
+            try {
+                this.onPersistError?.(error);
+            }
+            catch {
+                // Persistence observers must not break the queue.
+            }
+        });
+        // `force` documents privacy clears and intentionally keeps the same
+        // serialized path as ordinary state transitions.
+        void force;
+    }
+}
+exports.SyncOutbox = SyncOutbox;
+function readPersistedEntries(value) {
+    if (!isRecord(value) || value.schemaVersion !== exports.SYNC_OUTBOX_SCHEMA_VERSION || !Array.isArray(value.entries)) {
+        return [];
+    }
+    return value.entries.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.sessionId !== 'string')
+            return [];
+        const validation = (0, sprintlyContract_1.validateSprintlySession)(entry.payload);
+        if (!validation.ok)
+            return [];
+        const state = entry.state;
+        if (state !== 'pending' && state !== 'syncing' && state !== 'synced' && state !== 'failed')
+            return [];
+        return [{
+                sessionId: entry.sessionId,
+                payload: clonePayload(validation.value),
+                state,
+                attemptCount: nonNegativeInteger(entry.attemptCount),
+                lastAttemptTime: nullableTimestamp(entry.lastAttemptTime),
+                nextRetryTime: nullableTimestamp(entry.nextRetryTime),
+                lastError: typeof entry.lastError === 'string' ? sanitizeError(entry.lastError) : null,
+                compatibilityWarnings: Array.isArray(entry.compatibilityWarnings)
+                    ? entry.compatibilityWarnings.filter((warning) => typeof warning === 'string').slice(0, 20)
+                    : [],
+            }];
+    });
+}
+function cloneEntry(entry) {
+    return {
+        ...entry,
+        payload: clonePayload(entry.payload),
+        compatibilityWarnings: [...entry.compatibilityWarnings],
+    };
+}
+function clonePayload(payload) {
+    return JSON.parse(JSON.stringify(payload));
+}
+function sanitizeError(value) {
+    return value.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]').slice(0, 500);
+}
+function positiveInteger(value, fallback) {
+    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+function nonNegativeInteger(value) {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+function nullableTimestamp(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+}
+function isRecord(value) {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+//# sourceMappingURL=syncOutbox.js.map
