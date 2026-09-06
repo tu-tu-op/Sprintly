@@ -118,6 +118,17 @@ test('export/import is versioned, aggregate-only, and rejects malformed/future d
   );
 });
 
+test('manual website export uses contract plus numeric schemaVersion one', () => {
+  const source = new LocalSessionStore(new TestMemento(), { now: () => 1_000 });
+  source.append(completeRecord('sess_website_export', 1_000));
+  const websiteExport = source.exportSprintly(1_000);
+  assert.equal(websiteExport.payload.contract, 'devstrava.session.v1');
+  assert.equal(websiteExport.payload.schemaVersion, 1);
+  assert.equal(websiteExport.payload.sessions[0].sessionId, 'sess_website_export');
+  assert.equal('rawCommand' in websiteExport.payload.sessions[0], false);
+  assert.equal(JSON.stringify(websiteExport.payload).includes('promptText'), false);
+});
+
 test('history is isolated by the supplied workspace storage', () => {
   const firstWorkspace = new LocalSessionStore(new TestMemento());
   const secondWorkspace = new LocalSessionStore(new TestMemento());
