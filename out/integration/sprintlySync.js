@@ -98,6 +98,12 @@ class SprintlySyncService {
         this.options.stateStore.markDisconnected();
         await this.flushState();
     }
+    async eraseLocalData() {
+        await this.options.tokenStore.clear();
+        this.options.outbox.clear();
+        this.options.stateStore.markDisconnected();
+        await this.flushState();
+    }
     /** Queue and immediately attempt a user-selected session. */
     async syncCurrentSession(record) {
         return this.queueAndSync(record, true);

@@ -9,6 +9,10 @@ import { DailyStateStore } from './tracking/dailyStateStore';
 import { SessionActivityTracker } from './tracking/sessionActivityTracker';
 import { LocalSessionStore } from './tracking/localSessionStore';
 import { WebsiteHandoffService } from './tracking/websiteHandoff';
+import { SprintlySyncService } from './integration/sprintlySync';
+import { SprintlyTokenStore } from './integration/secureTokenStore';
+import { SyncOutbox } from './integration/syncOutbox';
+import { SyncStateStore } from './integration/syncState';
 import {
   demoLeaderboardData,
   demoHistoryData,
@@ -29,6 +33,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const dailyStore = new DailyStateStore(context.workspaceState);
   const historyStore = new LocalSessionStore(context.workspaceState);
   const handoff = new WebsiteHandoffService();
+  const syncOutbox = new SyncOutbox(context.workspaceState);
+  const syncStateStore = new SyncStateStore(context.workspaceState);
+  const syncService = new SprintlySyncService({
+    tokenStore: new SprintlyTokenStore(context.secrets),
+    outbox: syncOutbox,
+    stateStore: syncStateStore,
+  });
   const sessionActivityTracker = new SessionActivityTracker(dailyStore);
   const workspacePaths = (vscode.workspace.workspaceFolders ?? [])
     .filter((folder) => folder.uri.scheme === 'file')
@@ -45,6 +56,7 @@ export function activate(context: vscode.ExtensionContext): void {
     dailyStore,
     historyStore,
     handoff,
+    syncOutbox,
   );
   // Recover an interrupted session from the last durable observation so the
   // finalized draft and DailyState boundaries agree (audit Bug #2).
@@ -52,7 +64,16 @@ export function activate(context: vscode.ExtensionContext): void {
   if (interruptedId) {
     historyStore.recoverInterruptedSession(interruptedId, dailyStore.get().session.endedAt ?? Date.now());
   }
-  const lifecycleControls = registerCommands(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore, handoff);
+  const lifecycleControls = registerCommands(
+    context,
+    tracker,
+    statusBar,
+    dailyStore,
+    agentLogWatcher,
+    historyStore,
+    handoff,
+    syncService,
+  );
 
   // Privacy boundary: the agent-log watcher is constructed dormant. It only
   // discovers, reads, watches, or persists cursor state after the user
@@ -89,6 +110,14 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }),
   );
+
+  // Resume explicit/completed uploads after activation and periodically so a
+  // temporary website outage does not require restarting VS Code manually.
+  void syncService.resume().catch(() => undefined);
+  const retryTimer = setInterval(() => {
+    void syncService.resume().catch(() => undefined);
+  }, 60_000);
+  context.subscriptions.push({ dispose: () => clearInterval(retryTimer) });
 
   void runConsentFlow(async () => {
     await vscode.commands.executeCommand('sprintly.startSession');

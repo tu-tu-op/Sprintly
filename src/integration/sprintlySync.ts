@@ -148,6 +148,19 @@ export class SprintlySyncService {
     await this.flushState();
   }
 
+  async setDevelopmentToken(token: string): Promise<void> {
+    await this.options.tokenStore.storeDevelopmentToken(token);
+    this.options.stateStore.markDisconnected();
+    await this.flushState();
+  }
+
+  async eraseLocalData(): Promise<void> {
+    await this.options.tokenStore.clear();
+    this.options.outbox.clear();
+    this.options.stateStore.markDisconnected();
+    await this.flushState();
+  }
+
   /** Queue and immediately attempt a user-selected session. */
   async syncCurrentSession(record: SessionHistoryRecord): Promise<SyncOperationResult> {
     return this.queueAndSync(record, true);

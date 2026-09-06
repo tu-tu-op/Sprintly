@@ -16,6 +16,8 @@ const ALL_STORAGE_KEYS = [
     'sprintly.dailyTracking.v2',
     'devstrava.localSessionStore.v1',
     'sprintly.sessionHistory.v1',
+    'sprintly.syncOutbox.v1',
+    'sprintly.syncState.v1',
     consentFlow_1.STARTUP_PROMPT_MARKER,
 ];
 /**
@@ -178,6 +180,7 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
             tracker.reset();
             sessionStore.eraseAllData();
             historyStore.clear();
+            await syncService?.eraseLocalData();
             agentLogWatcher.stop();
             refresh();
         });
