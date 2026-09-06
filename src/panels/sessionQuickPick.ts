@@ -181,7 +181,7 @@ export function buildSessionPanelSummary(
   };
 }
 
-function buildPanelItems(
+export function buildPanelItems(
   tracker: SessionTracker,
   trackerStats: Readonly<SessionStats>,
   state: Readonly<DailySprintlyState>,

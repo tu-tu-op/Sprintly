@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.SESSION_PANEL_COMMAND = void 0;
 exports.showStatusPanel = showStatusPanel;
 exports.buildSessionPanelSummary = buildSessionPanelSummary;
+exports.buildPanelItems = buildPanelItems;
 const vscode = require("vscode");
 const pricing_1 = require("../tracking/pricing");
 const developerMetrics_1 = require("../tracking/developerMetrics");
