@@ -173,6 +173,8 @@ function readPersistedEntries(value) {
         const validation = (0, sprintlyContract_1.validateSprintlySession)(entry.payload);
         if (!validation.ok)
             return [];
+        if (validation.value.sessionId !== entry.sessionId)
+            return [];
         const state = entry.state;
         if (state !== 'pending' && state !== 'syncing' && state !== 'synced' && state !== 'failed')
             return [];

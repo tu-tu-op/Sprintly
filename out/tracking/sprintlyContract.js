@@ -60,6 +60,7 @@ const ARCHETYPE_FIELDS = new Set(['primary', 'traits']);
  */
 function mapSessionRecord(record) {
     const warnings = [];
+    const pauses = Array.isArray(record.pauses) ? record.pauses : [];
     const coding = record.coding;
     const codingTotal = coding.manualMs + coding.aiAssistedMs + coding.automationMs + coding.unknownBulkMs;
     const codingPercent = percentageSplit([
@@ -100,6 +101,48 @@ function mapSessionRecord(record) {
             sessionId: record.id,
             field: 'terminal.terminalOpens',
             message: 'Terminal opens are local activity metadata and are not part of the website wire contract.',
+        });
+    }
+    if (record.fileSwitches > 0) {
+        warnings.push({
+            sessionId: record.id,
+            field: 'activity.fileSwitches',
+            message: 'The website contract has no file-switch bucket; the local context-switch metric remains local-only.',
+        });
+    }
+    if (pauses.length > 0) {
+        warnings.push({
+            sessionId: record.id,
+            field: 'pauseDurationSeconds',
+            message: 'Pause duration is retained locally and is not part of the current website session contract.',
+        });
+    }
+    if (record.buildFailures.failureStreak > 0) {
+        warnings.push({
+            sessionId: record.id,
+            field: 'reliability.failureStreak',
+            message: 'Failure streak detail is not part of the current website reliability contract.',
+        });
+    }
+    if (record.buildFailures.maxFailureStreak > 0) {
+        warnings.push({
+            sessionId: record.id,
+            field: 'reliability.maxFailureStreak',
+            message: 'Maximum failure streak detail remains local-only.',
+        });
+    }
+    if (Object.keys(record.buildFailures.byCategory).length > 0) {
+        warnings.push({
+            sessionId: record.id,
+            field: 'reliability.byCategory',
+            message: 'Failure category detail remains local-only; only reliability totals are sent.',
+        });
+    }
+    if (record.buildFailures.successfulRuns > 0) {
+        warnings.push({
+            sessionId: record.id,
+            field: 'reliability.successfulRuns',
+            message: 'Successful execution detail remains local-only.',
         });
     }
     warnings.push(...['manualSeconds', 'aiAssistedSeconds', 'automationSeconds', 'unknownBulkEditSeconds'].map((field) => ({

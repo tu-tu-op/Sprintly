@@ -226,6 +226,7 @@ function readPersistedEntries(value: unknown): SyncOutboxEntry[] {
     if (!isRecord(entry) || typeof entry.sessionId !== 'string') return [];
     const validation = validateSprintlySession(entry.payload);
     if (!validation.ok) return [];
+    if (validation.value.sessionId !== entry.sessionId) return [];
     const state = entry.state;
     if (state !== 'pending' && state !== 'syncing' && state !== 'synced' && state !== 'failed') return [];
     return [{

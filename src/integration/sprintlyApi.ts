@@ -273,6 +273,12 @@ function parseRejected(
   sessions: readonly SprintlySessionContract[],
 ): RejectedSession[] {
   const raw = body.rejected ?? body.errors;
+  if (isRecord(raw)) {
+    return Object.entries(raw).map(([sessionId, reason]) => ({
+      sessionId,
+      reason: typeof reason === 'string' ? reason : 'The website rejected this session.',
+    }));
+  }
   if (!Array.isArray(raw)) {
     if (typeof body.reason === 'string') {
       return sessions.map((session) => ({ sessionId: session.sessionId, reason: body.reason as string }));
@@ -323,9 +329,13 @@ function apiErrorFromResponse(
 }
 
 function isRevokedDevice(body: Record<string, unknown>): boolean {
+  const code = typeof body.code === 'string' ? body.code.toUpperCase() : '';
+  const error = typeof body.error === 'string' ? body.error.toUpperCase() : '';
   return body.revoked === true
-    || body.code === 'DEVICE_REVOKED'
-    || body.error === 'DEVICE_REVOKED'
+    || code === 'DEVICE_REVOKED'
+    || code === 'REVOKED_DEVICE'
+    || error === 'DEVICE_REVOKED'
+    || error === 'REVOKED_DEVICE'
     || (typeof body.message === 'string' && body.message.toLowerCase().includes('revoked'));
 }
 
