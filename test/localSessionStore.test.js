@@ -120,8 +120,8 @@ test('export/import is versioned, aggregate-only, and rejects malformed/future d
 
 test('manual website export uses contract plus numeric schemaVersion one', () => {
   const source = new LocalSessionStore(new TestMemento(), { now: () => 1_000 });
-  source.append(completeRecord('sess_website_export', 1_000));
-  const websiteExport = source.exportSprintly(1_000);
+  source.append(completeRecord('sess_website_export', 4_000_000));
+  const websiteExport = source.exportSprintly(4_000_000);
   assert.equal(websiteExport.payload.contract, 'devstrava.session.v1');
   assert.equal(websiteExport.payload.schemaVersion, 1);
   assert.equal(websiteExport.payload.sessions[0].sessionId, 'sess_website_export');

@@ -90,7 +90,7 @@ test('unauthorized and revoked-device responses are distinct safe errors', async
   const revoked = new SprintlyApiClient({
     baseUrl: 'http://localhost:3000',
     token: 'token',
-    request: fakeTransport([{ status: 401, headers: {}, body: JSON.stringify({ code: 'DEVICE_REVOKED' }) }], []),
+    request: fakeTransport([{ status: 401, headers: {}, body: JSON.stringify({ code: 'revoked_device' }) }], []),
   });
   await assert.rejects(() => revoked.uploadSessions([session()]), (error) => {
     assert.equal(error.kind, 'revoked-device');
@@ -107,6 +107,18 @@ test('400 validation responses expose rejected records and reasons', async () =>
   await assert.rejects(() => client.uploadSessions([session()]), (error) => {
     assert.equal(error.kind, 'validation');
     assert.deepEqual(error.rejected, [{ sessionId: 'api-session', reason: 'invalid active duration' }]);
+    return true;
+  });
+});
+
+test('validation error maps can identify rejected session reasons', async () => {
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([{ status: 400, headers: {}, body: JSON.stringify({ errors: { 'api-session': 'invalid archetype' } }) }], []),
+  });
+  await assert.rejects(() => client.uploadSessions([session()]), (error) => {
+    assert.deepEqual(error.rejected, [{ sessionId: 'api-session', reason: 'invalid archetype' }]);
     return true;
   });
 });

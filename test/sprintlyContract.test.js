@@ -72,6 +72,14 @@ test('rejects an invalid contract instead of coercing malformed values', () => {
   assert.match(validation.errors.join('\n'), /schemaVersion|manualPercent/);
 });
 
+test('accepts the website score range while keeping percentage dimensions bounded', () => {
+  const payload = mapSessionRecord(record()).payload;
+  const scorePayload = { ...payload, scores: { ...payload.scores, devScore: 900 } };
+  assert.equal(validateSprintlySession(scorePayload).ok, true);
+  const invalid = { ...payload, scores: { ...payload.scores, focus: 101 } };
+  assert.equal(validateSprintlySession(invalid).ok, false);
+});
+
 test('reports unsupported fields and never serializes them', () => {
   const payload = mapSessionRecord(record()).payload;
   const unsupported = { ...payload, sourceCode: 'should never cross the boundary' };
