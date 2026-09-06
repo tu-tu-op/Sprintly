@@ -34,6 +34,10 @@ let importedLeaderboard = null;
 const rangeButtons = document.querySelectorAll('.range-button');
 const navTabs = document.querySelectorAll('.nav-tab');
 const viewTitle = document.getElementById('viewTitle');
+const historyList = document.getElementById('historyList');
+const sessionReport = document.getElementById('sessionReport');
+const closeReport = document.getElementById('closeReport');
+const closeReportFooter = document.getElementById('closeReportFooter');
 
 rangeButtons.forEach((button) => {
   button.addEventListener('click', () => {
@@ -61,6 +65,19 @@ document.getElementById('generateCard').addEventListener('click', () => {
 });
 document.getElementById('publicProfileToggle').addEventListener('change', (event) => {
   document.getElementById('profileStatus').textContent = event.target.checked ? 'Public' : 'Private';
+});
+
+historyList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-session-index]');
+  if (!button) return;
+  const session = getRangeData()[Number(button.dataset.sessionIndex)];
+  if (session) openSessionReport(session);
+});
+
+closeReport.addEventListener('click', () => sessionReport.close());
+closeReportFooter.addEventListener('click', () => sessionReport.close());
+sessionReport.addEventListener('click', (event) => {
+  if (event.target === sessionReport) sessionReport.close();
 });
 
 renderDashboard();
@@ -122,15 +139,147 @@ function renderHistory() {
     style: escapeHtml(session.style)
   }));
   document.getElementById('historyCount').textContent = `${safeData.length} sessions`;
-  document.getElementById('historyList').innerHTML = safeData.map((session) => {
+  historyList.innerHTML = safeData.map((session, index) => {
     return `<article class="history-item">
       <div>
         <strong>${session.date} · ${session.style}</strong>
         <span>${session.minutes} minutes · ${session.edits} edits · ${session.saves} saves</span>
       </div>
-      <strong>${session.hardcore}%</strong>
+      <div class="history-actions">
+        <strong class="history-score">${session.hardcore}%</strong>
+        <button class="secondary-action report-button" type="button" data-session-index="${index}" aria-label="View detailed report for ${session.date}, ${session.style}">View report</button>
+      </div>
     </article>`;
   }).join('');
+}
+
+function openSessionReport(session) {
+  const details = getSessionDetails(session);
+  document.getElementById('reportTitle').textContent = details.style;
+  document.getElementById('reportMeta').textContent = `${formatSessionDate(session)} · ${details.activeDurationLabel} active · ${details.region}`;
+  document.getElementById('reportScore').textContent = details.devScore;
+  document.getElementById('reportBadge').textContent = details.reportLabel;
+  document.getElementById('reportScoreSummary').textContent = `${details.focus}% focus`;
+
+  document.getElementById('reportMetrics').innerHTML = [
+    ['Active time', details.activeDurationLabel],
+    ['Paused time', formatDuration(details.pauseMinutes)],
+    ['Code edits', formatNumber(details.edits)],
+    ['Files touched', formatNumber(details.filesTouched)]
+  ].map(([label, value]) => `<article class="report-stat"><span>${label}</span><strong>${value}</strong></article>`).join('');
+
+  document.getElementById('reportMeters').innerHTML = details.scoreItems.map(({ label, value }) => `<div class="report-meter-row">
+    <span>${label}</span>
+    <div class="report-meter-track"><span style="width: ${value}%"></span></div>
+    <strong>${value}%</strong>
+  </div>`).join('');
+
+  document.getElementById('reportActivity').innerHTML = [
+    ['Saves', formatNumber(details.saves)],
+    ['File switches', formatNumber(details.fileSwitches)],
+    ['Lines changed', `${formatNumber(details.linesChanged)} est.`],
+    ['Terminal commands', formatNumber(details.terminalCommands)],
+    ['Test runs', formatNumber(details.testRuns)],
+    ['AI prompts', formatNumber(details.aiPrompts)],
+    ['AI-assisted coding', `${details.aiAssistedPercent}%`],
+    ['Failures recovered', `${formatNumber(details.recoveredFailures)} / ${formatNumber(details.failures)}`]
+  ].map(([label, value]) => `<div class="report-activity-item"><span>${label}</span><strong>${value}</strong></div>`).join('');
+
+  document.getElementById('reportInsights').innerHTML = [
+    ['Primary style', `${details.style} · ${details.reportSummary}`],
+    ['Reliability', details.failures === 0
+      ? 'Clean session with no tracked build or test failures.'
+      : `${details.recoveredFailures} of ${details.failures} tracked failures recovered (${details.recoveryRate}% recovery rate).`],
+    ['Secondary traits', details.traits.length ? details.traits.join(' · ') : 'No secondary traits recorded.']
+  ].map(([label, value]) => `<div class="report-insight"><strong>${label}</strong><span>${escapeHtml(value)}</span></div>`).join('');
+
+  sessionReport.showModal();
+}
+
+function getSessionDetails(session) {
+  const activeMinutes = Math.max(0, Math.round(numberOr(session.minutes, 0)));
+  const edits = Math.max(0, Math.round(numberOr(session.edits, 0)));
+  const saves = Math.max(0, Math.round(numberOr(session.saves, 0)));
+  const filesTouched = Math.max(0, Math.round(numberOr(session.filesTouched, Math.max(1, edits / 24))));
+  const fileSwitches = Math.max(0, Math.round(numberOr(session.fileSwitches, Math.max(1, filesTouched * 1.6))));
+  const linesChanged = Math.max(0, Math.round(numberOr(session.linesChanged, edits * 1.35)));
+  const terminalCommands = Math.max(0, Math.round(numberOr(session.terminalCommands, saves + Math.round(activeMinutes / 20))));
+  const testRuns = Math.max(0, Math.round(numberOr(session.testRuns, Math.max(1, numberOr(session.rhythm, 0) / 20))));
+  const failures = Math.max(0, Math.round(numberOr(session.failures, numberOr(session.debugging, 0) >= 75 ? 1 : 0)));
+  const recoveredFailures = Math.min(failures, Math.max(0, Math.round(numberOr(session.recoveredFailures, failures && numberOr(session.recovery, 100) >= 70 ? failures : 0))));
+  const scoreItems = [
+    ['Focus', numberOr(session.scores?.focus, session.hardcore)],
+    ['Consistency', numberOr(session.scores?.consistency, session.rhythm)],
+    ['Recovery', numberOr(session.scores?.recovery, failures ? (recoveredFailures / failures) * 100 : 100)],
+    ['Testing discipline', numberOr(session.scores?.testingDiscipline, Math.min(100, 45 + testRuns * 8))],
+    ['Shipping activity', numberOr(session.scores?.shippingActivity, Math.min(100, saves * 2 + edits / 8))],
+    ['AI balance', numberOr(session.scores?.aiBalance, 100 - Math.abs(numberOr(session.vibecoding, 0) - 50))]
+  ].map(([label, value]) => ({ label, value: clampPercent(value) }));
+  const focus = scoreItems.find((item) => item.label === 'Focus').value;
+  const devScore = clampPercent(numberOr(session.devScore, scoreItems.reduce((sum, item) => sum + item.value, 0) / scoreItems.length));
+  const aiAssistedPercent = clampPercent(numberOr(session.aiAssistedPercent, session.vibecoding));
+  const reportLabel = devScore >= 80 ? 'Peak session' : devScore >= 65 ? 'Strong session' : 'Building momentum';
+
+  return {
+    style: String(session.style || 'Coding session'),
+    region: String(session.region || 'Local'),
+    activeDurationLabel: formatDuration(activeMinutes),
+    pauseMinutes: Math.max(0, Math.round(numberOr(session.pauseMinutes, activeMinutes * 0.06))),
+    edits,
+    saves,
+    filesTouched,
+    fileSwitches,
+    linesChanged,
+    terminalCommands,
+    testRuns,
+    aiPrompts: Math.max(0, Math.round(numberOr(session.aiPrompts, Math.round(activeMinutes * aiAssistedPercent / 120)))),
+    aiAssistedPercent,
+    failures,
+    recoveredFailures,
+    recoveryRate: failures === 0 ? 100 : Math.round((recoveredFailures / failures) * 100),
+    focus,
+    devScore,
+    scoreItems,
+    reportLabel,
+    reportSummary: focus >= 80 ? 'Strong focus carried the session.' : 'A useful block with room to build consistency.',
+    traits: Array.isArray(session.traits) ? session.traits.map((trait) => String(trait)) : []
+  };
+}
+
+function formatSessionDate(session) {
+  const started = parseDate(session.startedAt);
+  const ended = parseDate(session.endedAt);
+  if (started && ended) {
+    return `${started.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, ${started.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} - ${ended.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+  }
+  return String(session.date || 'Session date unavailable');
+}
+
+function parseDate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDuration(minutes) {
+  const safeMinutes = Math.max(0, Math.round(numberOr(minutes, 0)));
+  if (safeMinutes < 60) return `${safeMinutes}m`;
+  const hours = Math.floor(safeMinutes / 60);
+  const remainder = safeMinutes % 60;
+  return remainder ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
+function formatNumber(value) {
+  return Math.round(numberOr(value, 0)).toLocaleString();
+}
+
+function numberOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : Number(fallback) || 0;
+}
+
+function clampPercent(value) {
+  return Math.max(0, Math.min(100, Math.round(numberOr(value, 0))));
 }
 
 function renderShareControls() {
@@ -294,15 +443,39 @@ function toWebsiteSession(session) {
   const scores = session.scores;
   const ended = new Date(session.endedAt);
   return {
+    sessionId: session.sessionId,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
     date: Number.isNaN(ended.getTime()) ? 'Imported' : ended.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
     minutes: Math.round(Number(session.activeDurationSeconds) / 60),
+    pauseMinutes: Math.round(Number(session.pauseDurationSeconds) / 60),
     edits: Number(session.activity.edits) || 0,
     saves: Number(session.activity.saves) || 0,
+    filesTouched: Number(session.activity.filesTouched) || 0,
+    fileSwitches: Number(session.activity.fileSwitches) || 0,
+    linesChanged: Number(session.activity.linesChangedEstimate) || 0,
+    terminalCommands: Number(session.terminal?.totalCommands) || 0,
+    testRuns: Number(session.terminal?.test) || 0,
+    aiPrompts: Number(session.ai?.claudeCodePrompts || 0) + Number(session.ai?.codexPrompts || 0) + Number(session.ai?.copilotPrompts || 0),
+    aiAssistedPercent: Number(coding.aiAssistedPercent) || 0,
+    failures: Number(reliability.failures) || 0,
+    recoveredFailures: Number(reliability.recoveredFailures) || 0,
+    recoveryRate: Number(reliability.recoveryRate) || 0,
     style: session.archetype.primaryArchetype,
     hardcore: Number(scores.focus) || 0,
     vibecoding: Number(coding.aiAssistedPercent) || 0,
     debugging: Math.min(100, (Number(reliability.failures) || 0) * 20),
     rhythm: Number(scores.consistency) || 0,
+    devScore: Number(scores.devScore) || 0,
+    scores: {
+      focus: Number(scores.focus) || 0,
+      consistency: Number(scores.consistency) || 0,
+      recovery: Number(scores.recovery) || 0,
+      testingDiscipline: Number(scores.testingDiscipline) || 0,
+      shippingActivity: Number(scores.shippingActivity) || 0,
+      aiBalance: Number(scores.aiBalance) || 0
+    },
+    traits: Array.isArray(session.archetype.secondaryTraits) ? session.archetype.secondaryTraits : [],
     region: 'Local'
   };
 }

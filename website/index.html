@@ -159,6 +159,56 @@
     </main>
   </div>
 
+  <dialog class="report-dialog" id="sessionReport" aria-labelledby="reportTitle">
+    <div class="report-dialog-shell">
+      <button class="report-close" id="closeReport" type="button" aria-label="Close session report">&times;</button>
+      <div class="report-header">
+        <div>
+          <p class="eyebrow">Session report</p>
+          <h2 id="reportTitle">Session details</h2>
+          <p class="report-meta" id="reportMeta"></p>
+        </div>
+        <div class="report-score-hero" aria-label="Developer score">
+          <strong id="reportScore">--</strong>
+          <span>/100</span>
+        </div>
+      </div>
+
+      <div class="report-badge" id="reportBadge"></div>
+      <div class="report-metrics" id="reportMetrics"></div>
+
+      <div class="report-grid">
+        <section class="report-panel">
+          <div class="panel-heading">
+            <h3>Score breakdown</h3>
+            <span id="reportScoreSummary"></span>
+          </div>
+          <div class="report-meter-list" id="reportMeters"></div>
+        </section>
+        <section class="report-panel">
+          <div class="panel-heading">
+            <h3>Activity breakdown</h3>
+            <span>Aggregate only</span>
+          </div>
+          <div class="report-activity-grid" id="reportActivity"></div>
+        </section>
+      </div>
+
+      <section class="report-panel report-readout">
+        <div class="panel-heading">
+          <h3>Session readout</h3>
+          <span>What this session says</span>
+        </div>
+        <div class="report-insights" id="reportInsights"></div>
+      </section>
+
+      <div class="report-footer">
+        <p class="inline-note"><strong>Private by default.</strong> Raw code and terminal commands stay on your device.</p>
+        <button class="secondary-action" id="closeReportFooter" type="button">Back to history</button>
+      </div>
+    </div>
+  </dialog>
+
   <script src="./app.js"></script>
 </body>
 </html>

@@ -52,6 +52,7 @@ input {
 .panel-heading,
 .switch-row,
 .history-item,
+.history-actions,
 .leaderboard-row {
   display: flex;
   align-items: center;
@@ -334,6 +335,39 @@ h2 {
   background: #fbfcfa;
 }
 
+.history-item {
+  align-items: flex-start;
+}
+
+.history-copy {
+  min-width: 0;
+}
+
+.history-actions {
+  flex-shrink: 0;
+  gap: 14px;
+}
+
+.history-score {
+  white-space: nowrap;
+}
+
+.secondary-action {
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: white;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.secondary-action:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
 .history-item strong,
 .leaderboard-row strong {
   display: block;
@@ -428,6 +462,231 @@ select {
   color: var(--ink);
 }
 
+.report-dialog {
+  width: min(760px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  background: var(--page);
+  box-shadow: 0 28px 80px rgba(23, 33, 29, 0.28);
+}
+
+.report-dialog::backdrop {
+  background: rgba(17, 21, 20, 0.62);
+  backdrop-filter: blur(4px);
+}
+
+.report-dialog-shell {
+  position: relative;
+  display: grid;
+  gap: 18px;
+  max-height: calc(100vh - 32px);
+  padding: 28px;
+  overflow-y: auto;
+}
+
+.report-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  background: white;
+  cursor: pointer;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 20px;
+  padding-right: 44px;
+}
+
+.report-header h2 {
+  margin-bottom: 8px;
+  font-size: 28px;
+}
+
+.report-meta {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.report-score-hero {
+  display: flex;
+  align-items: baseline;
+  color: var(--red);
+  white-space: nowrap;
+}
+
+.report-score-hero strong {
+  font-size: 54px;
+  line-height: 1;
+}
+
+.report-score-hero span {
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.report-badge {
+  width: fit-content;
+  padding: 7px 10px;
+  border-radius: 999px;
+  color: #17674f;
+  background: #d9f0e6;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-stat {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.report-stat span,
+.report-activity-item span,
+.report-insight span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.report-stat strong {
+  display: block;
+  margin-top: 6px;
+  font-size: 20px;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.report-panel {
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+}
+
+.report-panel h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.report-meter-list {
+  display: grid;
+  gap: 13px;
+}
+
+.report-meter-row {
+  display: grid;
+  grid-template-columns: 126px 1fr 38px;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.report-meter-track {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e8ede5;
+}
+
+.report-meter-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--red), var(--gold));
+}
+
+.report-activity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.report-activity-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 7px;
+  background: #f3f7f1;
+}
+
+.report-activity-item strong {
+  font-size: 15px;
+}
+
+.report-readout {
+  display: grid;
+  gap: 4px;
+}
+
+.report-insights {
+  display: grid;
+  gap: 11px;
+}
+
+.report-insight {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 12px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.report-insight:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.report-insight strong {
+  font-size: 13px;
+}
+
+.report-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+}
+
+.report-footer p {
+  margin-bottom: 0;
+}
+
+.report-footer p strong {
+  color: var(--ink);
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible {
+  outline: 3px solid rgba(49, 152, 166, 0.35);
+  outline-offset: 2px;
+}
+
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -454,7 +713,8 @@ select {
   .topbar,
   .split-layout,
   .share-layout,
-  .profile-grid {
+  .profile-grid,
+  .report-grid {
     grid-template-columns: 1fr;
   }
 
@@ -480,6 +740,20 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .report-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .report-header,
+  .report-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .report-footer .secondary-action {
+    width: 100%;
+  }
+
   .range-switcher {
     flex-wrap: wrap;
   }
@@ -490,5 +764,32 @@ select {
 
   .meter-row {
     grid-template-columns: 78px 1fr 38px;
+  }
+
+  .history-item {
+    flex-direction: column;
+  }
+
+  .history-actions {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .report-dialog-shell {
+    padding: 22px 18px;
+  }
+
+  .report-metrics,
+  .report-activity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-meter-row {
+    grid-template-columns: 104px 1fr 38px;
+  }
+
+  .report-insight {
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 }
