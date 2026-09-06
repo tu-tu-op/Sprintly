@@ -416,6 +416,18 @@ function parseImportPayload(payload) {
     if (parsed.exportVersion !== undefined && parsed.exportVersion !== sessionSchema_1.DEVSTRAVA_EXPORT_SCHEMA_VERSION) {
         throw new Error(`Unsupported future DevStrava export schema: ${String(parsed.exportVersion)}`);
     }
+    if (parsed.contract === sprintlyContract_1.SPRINTLY_CONTRACT) {
+        if (parsed.schemaVersion !== sprintlyContract_1.SPRINTLY_SCHEMA_VERSION) {
+            throw new Error(`Unsupported future Sprintly schema: ${String(parsed.schemaVersion)}`);
+        }
+        return sessions.map((session) => {
+            const validation = (0, sprintlyContract_1.validateSprintlySession)(session);
+            if (!validation.ok) {
+                throw new Error(`Invalid Sprintly session: ${validation.errors.join('; ')}`);
+            }
+            return fromSprintlySessionContract(validation.value);
+        });
+    }
     if (parsed.schemaVersion === sessionSchema_1.DEVSTRAVA_SESSION_SCHEMA_VERSION) {
         const result = [];
         for (const session of sessions) {
@@ -518,6 +530,88 @@ function fromSessionContract(session) {
             cleanRun: failures.cleanSession,
         },
         scores,
+        completed: true,
+    }, true);
+}
+function fromSprintlySessionContract(session) {
+    const durationMs = session.activeDurationSeconds * 1000;
+    const durationFor = (percentValue) => Math.round(durationMs * percentValue / 100);
+    return normalizeRecord({
+        schemaVersion: sessionSchema_1.DEVSTRAVA_SESSION_SCHEMA_VERSION,
+        version: 1,
+        id: session.sessionId,
+        startedAt: Date.parse(session.startedAt),
+        endedAt: Date.parse(session.endedAt),
+        activeDurationMs: durationMs,
+        pauses: [],
+        coding: {
+            manualMs: durationFor(session.coding.manualPercent),
+            aiAssistedMs: durationFor(session.coding.aiAssistedPercent),
+            automationMs: durationFor(session.coding.automationPercent),
+            unknownBulkMs: durationFor(session.coding.unknownBulkEditPercent),
+        },
+        edits: session.activity.edits,
+        linesChanged: session.activity.linesChangedEstimate,
+        fileSaves: session.activity.saves,
+        fileSwitches: 0,
+        filesTouched: session.activity.filesTouched,
+        terminalOpens: 0,
+        terminalCommands: session.terminal.totalCommands,
+        terminalCommandsByCategory: {
+            ...(0, terminalCommands_1.emptyTerminalCommandCounts)(),
+            build: session.terminal.build,
+            test: session.terminal.test,
+            git: session.terminal.git,
+            'package-manager': session.terminal.packageManager,
+            'dev-server': session.terminal.devServer,
+            lint: session.terminal.lint,
+            other: session.terminal.other,
+        },
+        agentPrompts: {
+            claudeCode: session.ai.claudeCodePrompts,
+            codex: session.ai.codexPrompts,
+            githubCopilot: session.ai.copilotPrompts,
+        },
+        tokenStats: {
+            claudeCode: {
+                input: session.ai.tokenTotals.claude,
+                output: 0,
+                cacheRead: 0,
+                cacheCreate: 0,
+            },
+            codex: { total: session.ai.tokenTotals.codex },
+            githubCopilot: { input: session.ai.tokenTotals.copilot, output: 0, credits: 0 },
+        },
+        buildFailures: {
+            total: session.reliability.failures,
+            byCategory: {},
+            successfulRuns: 0,
+            recoveredFailures: session.reliability.recoveredFailures,
+            failureStreak: 0,
+            maxFailureStreak: 0,
+            lastFailureCategory: null,
+        },
+        archetype: session.archetype.primary,
+        traits: [...session.archetype.traits],
+        metrics: {
+            focusScore: session.scores.focus,
+            contextSwitches: 0,
+            shippingActivity: 0,
+            testingDiscipline: session.scores.testingDiscipline,
+            aiBalance: session.scores.aiBalance,
+            recoveryRate: session.scores.recovery,
+            cleanRun: session.reliability.failures === 0,
+        },
+        scores: {
+            devScoreVersion: 1,
+            focus: session.scores.focus,
+            consistency: session.scores.consistency,
+            recovery: session.scores.recovery,
+            testingDiscipline: session.scores.testingDiscipline,
+            shippingActivity: 0,
+            aiBalance: session.scores.aiBalance,
+            devScore: session.scores.devScore,
+        },
         completed: true,
     }, true);
 }

@@ -25,6 +25,10 @@ import {
   ContractCompatibilityWarning,
   createSprintlyExport,
   SprintlyExportPayload,
+  SprintlySessionContract,
+  SPRINTLY_CONTRACT,
+  SPRINTLY_SCHEMA_VERSION,
+  validateSprintlySession,
 } from './sprintlyContract';
 
 export interface SessionHistoryRecord {
@@ -540,6 +544,18 @@ function parseImportPayload(payload: unknown): SessionHistoryRecord[] {
   if (parsed.exportVersion !== undefined && parsed.exportVersion !== DEVSTRAVA_EXPORT_SCHEMA_VERSION) {
     throw new Error(`Unsupported future DevStrava export schema: ${String(parsed.exportVersion)}`);
   }
+  if (parsed.contract === SPRINTLY_CONTRACT) {
+    if (parsed.schemaVersion !== SPRINTLY_SCHEMA_VERSION) {
+      throw new Error(`Unsupported future Sprintly schema: ${String(parsed.schemaVersion)}`);
+    }
+    return sessions.map((session) => {
+      const validation = validateSprintlySession(session);
+      if (!validation.ok) {
+        throw new Error(`Invalid Sprintly session: ${validation.errors.join('; ')}`);
+      }
+      return fromSprintlySessionContract(validation.value);
+    });
+  }
   if (parsed.schemaVersion === DEVSTRAVA_SESSION_SCHEMA_VERSION) {
     const result: SessionHistoryRecord[] = [];
     for (const session of sessions) {
@@ -642,6 +658,89 @@ function fromSessionContract(session: DevStravaSessionContract): SessionHistoryR
       cleanRun: failures.cleanSession,
     },
     scores,
+    completed: true,
+  }, true);
+}
+
+function fromSprintlySessionContract(session: SprintlySessionContract): SessionHistoryRecord {
+  const durationMs = session.activeDurationSeconds * 1_000;
+  const durationFor = (percentValue: number): number => Math.round(durationMs * percentValue / 100);
+  return normalizeRecord({
+    schemaVersion: DEVSTRAVA_SESSION_SCHEMA_VERSION,
+    version: 1,
+    id: session.sessionId,
+    startedAt: Date.parse(session.startedAt),
+    endedAt: Date.parse(session.endedAt),
+    activeDurationMs: durationMs,
+    pauses: [],
+    coding: {
+      manualMs: durationFor(session.coding.manualPercent),
+      aiAssistedMs: durationFor(session.coding.aiAssistedPercent),
+      automationMs: durationFor(session.coding.automationPercent),
+      unknownBulkMs: durationFor(session.coding.unknownBulkEditPercent),
+    },
+    edits: session.activity.edits,
+    linesChanged: session.activity.linesChangedEstimate,
+    fileSaves: session.activity.saves,
+    fileSwitches: 0,
+    filesTouched: session.activity.filesTouched,
+    terminalOpens: 0,
+    terminalCommands: session.terminal.totalCommands,
+    terminalCommandsByCategory: {
+      ...emptyTerminalCommandCounts(),
+      build: session.terminal.build,
+      test: session.terminal.test,
+      git: session.terminal.git,
+      'package-manager': session.terminal.packageManager,
+      'dev-server': session.terminal.devServer,
+      lint: session.terminal.lint,
+      other: session.terminal.other,
+    },
+    agentPrompts: {
+      claudeCode: session.ai.claudeCodePrompts,
+      codex: session.ai.codexPrompts,
+      githubCopilot: session.ai.copilotPrompts,
+    },
+    tokenStats: {
+      claudeCode: {
+        input: session.ai.tokenTotals.claude,
+        output: 0,
+        cacheRead: 0,
+        cacheCreate: 0,
+      },
+      codex: { total: session.ai.tokenTotals.codex },
+      githubCopilot: { input: session.ai.tokenTotals.copilot, output: 0, credits: 0 },
+    },
+    buildFailures: {
+      total: session.reliability.failures,
+      byCategory: {},
+      successfulRuns: 0,
+      recoveredFailures: session.reliability.recoveredFailures,
+      failureStreak: 0,
+      maxFailureStreak: 0,
+      lastFailureCategory: null,
+    },
+    archetype: session.archetype.primary,
+    traits: [...session.archetype.traits],
+    metrics: {
+      focusScore: session.scores.focus,
+      contextSwitches: 0,
+      shippingActivity: 0,
+      testingDiscipline: session.scores.testingDiscipline,
+      aiBalance: session.scores.aiBalance,
+      recoveryRate: session.scores.recovery,
+      cleanRun: session.reliability.failures === 0,
+    },
+    scores: {
+      devScoreVersion: 1,
+      focus: session.scores.focus,
+      consistency: session.scores.consistency,
+      recovery: session.scores.recovery,
+      testingDiscipline: session.scores.testingDiscipline,
+      shippingActivity: 0,
+      aiBalance: session.scores.aiBalance,
+      devScore: session.scores.devScore,
+    },
     completed: true,
   }, true);
 }
