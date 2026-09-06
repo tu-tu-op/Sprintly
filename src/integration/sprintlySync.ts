@@ -165,6 +165,12 @@ export class SprintlySyncService {
     await this.flushState();
   }
 
+  async clearQueuedSessions(): Promise<void> {
+    this.options.outbox.clear();
+    await this.options.outbox.flush();
+    this.notify();
+  }
+
   /** Queue and immediately attempt a user-selected session. */
   async syncCurrentSession(record: SessionHistoryRecord): Promise<SyncOperationResult> {
     return this.queueAndSync(record, true);

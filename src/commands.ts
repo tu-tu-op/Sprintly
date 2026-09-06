@@ -203,6 +203,7 @@ export function registerCommands(
     );
     if (confirmation !== 'Clear History') return;
     historyStore.clear();
+    await syncService?.clearQueuedSessions();
     await persistOrWarn();
     void vscode.window.showInformationMessage('Sprintly session history cleared.');
   };

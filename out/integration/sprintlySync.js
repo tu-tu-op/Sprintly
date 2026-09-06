@@ -108,6 +108,11 @@ class SprintlySyncService {
         this.options.stateStore.markDisconnected();
         await this.flushState();
     }
+    async clearQueuedSessions() {
+        this.options.outbox.clear();
+        await this.options.outbox.flush();
+        this.notify();
+    }
     /** Queue and immediately attempt a user-selected session. */
     async syncCurrentSession(record) {
         return this.queueAndSync(record, true);

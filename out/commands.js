@@ -166,6 +166,7 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
         if (confirmation !== 'Clear History')
             return;
         historyStore.clear();
+        await syncService?.clearQueuedSessions();
         await persistOrWarn();
         void vscode.window.showInformationMessage('Sprintly session history cleared.');
     };
