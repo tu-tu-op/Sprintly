@@ -52,6 +52,9 @@ class SprintlySyncService {
     }
     async connectDevelopment() {
         const settings = this.readSettings();
+        if (settings.environment !== 'development') {
+            throw new Error('Development tokens can be used only when sprintly.apiEnvironment is development.');
+        }
         const token = await this.options.tokenStore.get('development', settings.developmentToken);
         if (!token) {
             throw new Error('No development token is configured. Use Sprintly: Set Development Token or sprintly.developmentToken.');
@@ -164,7 +167,7 @@ class SprintlySyncService {
             return emptyResult('queued');
         }
         const settings = this.readSettings();
-        const token = await this.options.tokenStore.get('development', settings.developmentToken);
+        const token = await this.options.tokenStore.get(settings.environment, settings.developmentToken);
         if (!token && settings.environment === 'production') {
             const message = 'Sprintly is not connected. Run Sprintly: Connect before syncing.';
             this.options.stateStore.markSyncFailed(message);
