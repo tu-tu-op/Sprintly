@@ -12,7 +12,7 @@ import { getPrivacySettings } from '../tracking/privacySettings';
 export const SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 
 type MetricDetail = 'coding' | 'prompts' | 'failures' | 'tokens';
-type PanelAction = 'start' | 'pause' | 'resume' | 'stop' | 'reset' | 'settings';
+type PanelAction = 'start' | 'pause' | 'resume' | 'stop' | 'reset' | 'settings' | 'viewWebsite';
 
 interface SessionPanelItem extends vscode.QuickPickItem {
   metric?: MetricDetail;
@@ -44,6 +44,7 @@ export async function showStatusPanel(
   quickPick.matchOnDetail = false;
   quickPick.buttons = [
     { iconPath: new vscode.ThemeIcon('refresh'), tooltip: 'Refresh' },
+    { iconPath: new vscode.ThemeIcon('globe'), tooltip: 'View session report' },
     { iconPath: new vscode.ThemeIcon('settings-gear'), tooltip: 'Settings' },
   ];
 
@@ -74,6 +75,11 @@ export async function showStatusPanel(
     if (icon === 'settings-gear') {
       quickPick.hide();
       void vscode.commands.executeCommand('workbench.action.openSettings', 'sprintly');
+      return;
+    }
+    if (icon === 'globe') {
+      quickPick.hide();
+      void vscode.commands.executeCommand('sprintly.connectWebsite');
     }
   });
 
@@ -142,6 +148,7 @@ function buildPanelItems(
     separator('SESSION'),
     item(statusIcon(summary.status), summary.status, summary.duration,
       state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
+    actionItem('globe', 'View Session Report', 'Open the detailed session report in your browser', 'viewWebsite'),
   ];
 
   if (state.session.id) {
@@ -283,6 +290,7 @@ function runPanelAction(action: PanelAction): void {
     stop: 'sprintly.stopSession',
     reset: 'sprintly.resetSession',
     settings: 'workbench.action.openSettings',
+    viewWebsite: 'sprintly.connectWebsite',
   };
   const args = action === 'settings' ? ['sprintly'] : [];
   void vscode.commands.executeCommand(commands[action], ...args);

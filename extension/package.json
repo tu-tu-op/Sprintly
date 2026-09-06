@@ -14,6 +14,7 @@
       { "command": "sprintly.pauseSession",    "title": "Sprintly: Pause Session" },
       { "command": "sprintly.resumeSession",   "title": "Sprintly: Resume Session" },
       { "command": "sprintly.resetSession",    "title": "Sprintly: Reset Session" },
+      { "command": "sprintly.connectWebsite",  "title": "Sprintly: View Session Report", "category": "Sprintly" },
       { "command": "sprintly.clearHistory",    "title": "Sprintly: Clear Session History" },
       { "command": "sprintly.showStatusPanel", "title": "Open Quick Panel",       "category": "Sprintly" },
       { "command": "sprintly.openPanel",       "title": "Open Quick Panel",       "category": "Sprintly" },
@@ -40,6 +41,11 @@
           "maximum": 1000,
           "default": 100,
           "description": "Maximum number of aggregate session records kept locally."
+        },
+        "sprintly.websiteUrl": {
+          "type": "string",
+          "default": "https://sprintly.app/connect",
+          "description": "Website URL opened by the View Session Report action."
         },
         "sprintly.cloudSyncEnabled": {
           "type": "boolean",

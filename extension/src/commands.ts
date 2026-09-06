@@ -98,12 +98,31 @@ export function registerCommands(
     refresh();
   };
 
+  const connectWebsite = async (): Promise<void> => {
+    const configuredUrl = vscode.workspace
+      .getConfiguration('sprintly')
+      .get<string>('websiteUrl', 'https://sprintly.app/connect');
+    try {
+      const url = new URL(configuredUrl);
+      if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+        throw new Error('Unsupported website URL protocol');
+      }
+      const opened = await vscode.env.openExternal(vscode.Uri.parse(url.toString()));
+      if (!opened) {
+        throw new Error('The website could not be opened');
+      }
+    } catch {
+      void vscode.window.showErrorMessage('Sprintly website URL is invalid or could not be opened.');
+    }
+  };
+
   context.subscriptions.push(
     vscode.commands.registerCommand('sprintly.startSession', start),
     vscode.commands.registerCommand('sprintly.stopSession', stop),
     vscode.commands.registerCommand('sprintly.pauseSession', pause),
     vscode.commands.registerCommand('sprintly.resumeSession', resume),
     vscode.commands.registerCommand('sprintly.resetSession', reset),
+    vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite),
     vscode.commands.registerCommand('sprintly.clearHistory', () => {
       historyStore.clear();
       void vscode.window.showInformationMessage('Sprintly session history cleared.');
