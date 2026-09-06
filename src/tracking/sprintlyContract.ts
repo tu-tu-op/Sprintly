@@ -353,7 +353,7 @@ export function validateSprintlyExport(value: unknown): ContractValidationResult
     });
   }
   if (errors.length) return { ok: false, errors };
-  return { ok: true, value: value as SprintlyExportPayload };
+  return { ok: true, value: value as unknown as SprintlyExportPayload };
 }
 
 export function validateSprintlySession(value: unknown): ContractValidationResult<SprintlySessionContract> {
@@ -379,7 +379,7 @@ export function validateSprintlySession(value: unknown): ContractValidationResul
   validateScores(value.scores, errors);
   validateArchetype(value.archetype, errors);
   if (errors.length) return { ok: false, errors };
-  return { ok: true, value: value as SprintlySessionContract };
+  return { ok: true, value: value as unknown as SprintlySessionContract };
 }
 
 function validateCoding(value: unknown, errors: string[]): void {
