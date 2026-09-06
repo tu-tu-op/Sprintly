@@ -213,3 +213,12 @@ test('production pairing stores a device token and uses it for the next upload',
   assert.equal(result.state, 'synced');
   assert.deepEqual(usedTokens, ['device-pair-code', 'device-pair-code']);
 });
+
+test('clearing local history also clears every queued wire payload', async () => {
+  const setupValue = setup({}, { acceptedSessionIds: [], duplicateSessionIds: [], rejected: [] });
+  await setupValue.service.syncCompletedSession(record());
+  assert.equal(setupValue.outbox.list().length, 1);
+  await setupValue.service.clearQueuedSessions();
+  assert.equal(setupValue.outbox.list().length, 0);
+  assert.equal(await setupValue.secrets.get('sprintly.extension.developmentToken'), 'dev-token');
+});
