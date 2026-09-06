@@ -21,6 +21,11 @@ import {
   validateSessionContract,
 } from './sessionSchema';
 import { SessionStats } from '../sessionTracker';
+import {
+  ContractCompatibilityWarning,
+  createSprintlyExport,
+  SprintlyExportPayload,
+} from './sprintlyContract';
 
 export interface SessionHistoryRecord {
   schemaVersion: typeof DEVSTRAVA_SESSION_SCHEMA_VERSION;
@@ -281,6 +286,14 @@ export class LocalSessionStore implements vscode.Disposable {
         aiTracking: privacy.aiTrackingVisible,
       },
     };
+  }
+
+  /** Build the exact website-compatible manual export without changing local state. */
+  exportSprintly(now = this.now()): {
+    payload: SprintlyExportPayload;
+    warnings: ContractCompatibilityWarning[];
+  } {
+    return createSprintlyExport(this.list(), new Date(now));
   }
 
   /** Import is synchronous in memory; persistence is queued like all store writes. */

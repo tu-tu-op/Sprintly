@@ -10,6 +10,7 @@ const privacySettings_1 = require("./privacySettings");
 const sessionAggregation_1 = require("./sessionAggregation");
 const terminalCommands_1 = require("./terminalCommands");
 const sessionSchema_1 = require("./sessionSchema");
+const sprintlyContract_1 = require("./sprintlyContract");
 const LOCAL_STORE_SCHEMA_VERSION = 'devstrava.local-store.v1';
 const DEFAULT_RETENTION = 100;
 const DEFAULT_STORAGE_KEY = 'devstrava.localSessionStore.v1';
@@ -184,6 +185,10 @@ class LocalSessionStore {
                 aiTracking: privacy.aiTrackingVisible,
             },
         };
+    }
+    /** Build the exact website-compatible manual export without changing local state. */
+    exportSprintly(now = this.now()) {
+        return (0, sprintlyContract_1.createSprintlyExport)(this.list(), new Date(now));
     }
     /** Import is synchronous in memory; persistence is queued like all store writes. */
     import(payload, mode = 'merge') {

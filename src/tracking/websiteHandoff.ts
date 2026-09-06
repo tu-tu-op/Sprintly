@@ -5,6 +5,7 @@ import {
   DevStravaExportPayload,
   DevStravaSessionContract,
 } from './sessionSchema';
+import type { SprintlyExportPayload } from './sprintlyContract';
 import { aggregateSessions } from './sessionAggregation';
 import { toSessionContract } from './localSessionStore';
 
@@ -104,7 +105,7 @@ export class WebsiteHandoffService implements vscode.Disposable {
   }
 
   async savePayload(
-    payload: WebsiteHandoffPayload | DevStravaExportPayload,
+    payload: WebsiteHandoffPayload | DevStravaExportPayload | SprintlyExportPayload,
     defaultFileName: string,
     openWebsite = false,
   ): Promise<HandoffResult | null> {
