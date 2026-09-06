@@ -37,6 +37,7 @@ test('health endpoint accepts the exact contract response', async () => {
   const calls = [];
   const client = new SprintlyApiClient({
     baseUrl: 'http://localhost:3000',
+    token: 'must-not-be-sent-to-health',
     request: fakeTransport([{ status: 200, headers: {}, body: JSON.stringify({ ok: true, contract: 'devstrava.session.v1', schemaVersion: 1 }) }], calls),
   });
   assert.deepEqual(await client.health(), { ok: true, contract: 'devstrava.session.v1', schemaVersion: 1 });
