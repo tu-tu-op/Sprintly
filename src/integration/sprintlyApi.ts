@@ -167,6 +167,12 @@ export class SprintlyApiClient {
     if (body.contract !== undefined || body.schemaVersion !== undefined) {
       validateUploadResponseContract(body, response.status);
     }
+    if (isSyncDisabled(body)) {
+      throw new SprintlyApiError(
+        'Sprintly synchronization is disabled by the website account settings.',
+        { kind: 'sync-disabled', status: response.status },
+      );
+    }
     if (response.status === 401) {
       const revoked = isRevokedDevice(body);
       throw new SprintlyApiError(
@@ -175,12 +181,6 @@ export class SprintlyApiClient {
           kind: revoked ? 'revoked-device' : 'unauthorized',
           status: response.status,
         },
-      );
-    }
-    if ((response.status === 400 || response.status === 403) && isSyncDisabled(body)) {
-      throw new SprintlyApiError(
-        'Sprintly synchronization is disabled by the website account settings.',
-        { kind: 'sync-disabled', status: response.status },
       );
     }
     if (response.status === 400) {

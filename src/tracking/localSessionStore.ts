@@ -285,6 +285,7 @@ export class LocalSessionStore implements vscode.Disposable {
         telemetryCategories: {
           codingActivity: privacy.trackCodingActivity,
           agentUsage: privacy.trackAgentUsage,
+          terminalActivity: privacy.trackTerminalActivity,
           buildFailures: privacy.trackBuildFailures,
         },
         aiTracking: privacy.aiTrackingVisible,

@@ -27,6 +27,7 @@
       { "command": "sprintly.syncPendingSessions", "title": "Sprintly: Sync Pending Sessions", "category": "Sprintly" },
       { "command": "sprintly.syncNow",        "title": "Sprintly: Sync Now", "category": "Sprintly" },
       { "command": "sprintly.migrateLocalSessions", "title": "Sprintly: Migrate Local Sessions", "category": "Sprintly" },
+      { "command": "sprintly.clearSyncQueue", "title": "Sprintly: Clear Local Sync Queue", "category": "Sprintly" },
       { "command": "sprintly.viewSyncStatus",  "title": "Sprintly: View Sync Status", "category": "Sprintly" },
       { "command": "sprintly.disconnect",      "title": "Sprintly: Disconnect/Revoke Local Token", "category": "Sprintly" },
       { "command": "sprintly.connectWebsite",  "title": "Sprintly: View Session Report", "category": "Sprintly" },
@@ -68,6 +69,11 @@
           "default": false,
           "description": "Consent for the explicit Sync History action to prepare an aggregate-only website handoff. It never enables automatic uploads."
         },
+        "sprintly.syncEnabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow the extension to upload aggregate sessions after pairing. The website remains the source of truth for server consent."
+        },
         "sprintly.websiteUrl": {
           "type": "string",
           "default": "https://sprintly.app/connect",
@@ -106,6 +112,11 @@
           "type": "boolean",
           "default": true,
           "description": "Record local AI-agent prompt and token aggregates."
+        },
+        "sprintly.telemetry.trackTerminalActivity": {
+          "type": "boolean",
+          "default": true,
+          "description": "Record local terminal command counts and privacy-safe categories. Command text and output are never stored or uploaded."
         },
         "sprintly.telemetry.trackBuildFailures": {
           "type": "boolean",

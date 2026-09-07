@@ -25,20 +25,24 @@ class TestEventEmitter {
 const changeDocument = new TestEventEmitter();
 const saveDocument = new TestEventEmitter();
 const changeEditor = new TestEventEmitter();
+const openTerminal = new TestEventEmitter();
 const changeShellIntegration = new TestEventEmitter();
 const closeTerminal = new TestEventEmitter();
 const endShellExecution = new TestEventEmitter();
 const terminal = { shellIntegration: {} };
+let configuration = {};
 
 const vscodeStub = {
   EventEmitter: TestEventEmitter,
   workspace: {
+    getConfiguration: () => ({ get: (key, fallback) => configuration[key] ?? fallback }),
     onDidChangeTextDocument: changeDocument.event,
     onDidSaveTextDocument: saveDocument.event,
   },
   window: {
     terminals: [terminal],
     onDidChangeActiveTextEditor: changeEditor.event,
+    onDidOpenTerminal: openTerminal.event,
     onDidChangeTerminalShellIntegration: changeShellIntegration.event,
     onDidCloseTerminal: closeTerminal.event,
     onDidEndTerminalShellExecution: endShellExecution.event,
@@ -56,7 +60,7 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
 const { DailyStateStore } = require('../out/tracking/dailyStateStore');
 const { SessionActivityTracker, classifyChange } = require('../out/tracking/sessionActivityTracker');
 const { BuildFailureTracker } = require('../out/tracking/buildFailureTracker');
-const { estimateChangedLines } = require('../out/sessionTracker');
+const { SessionTracker, estimateChangedLines } = require('../out/sessionTracker');
 Module._load = originalLoad;
 
 class TestMemento {
@@ -321,4 +325,26 @@ test('recovery requires a same-family successful execution, not any success', as
   } finally {
     Date.now = originalNow;
   }
+});
+
+test('terminal activity privacy setting gates command and terminal-open counters', () => {
+  configuration = {};
+  const tracker = new SessionTracker();
+  tracker.start();
+  openTerminal.fire();
+  endShellExecution.fire({ execution: { commandLine: { value: 'npm test' } } });
+  let stats = tracker.get();
+  assert.equal(stats.terminalOpens, 1);
+  assert.equal(stats.terminalCommands, 1);
+  assert.equal(stats.terminalCommandsByCategory.test, 1);
+
+  configuration = { 'telemetry.trackTerminalActivity': false };
+  openTerminal.fire();
+  endShellExecution.fire({ execution: { commandLine: { value: 'git status' } } });
+  stats = tracker.get();
+  assert.equal(stats.terminalOpens, 1);
+  assert.equal(stats.terminalCommands, 1);
+  assert.equal(stats.terminalCommandsByCategory.git, 0);
+  tracker.dispose();
+  configuration = {};
 });

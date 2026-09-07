@@ -25,8 +25,10 @@ test('privacy settings default to local aggregate collection', () => {
   const settings = getPrivacySettings();
   assert.equal(settings.enabled, true);
   assert.equal(settings.localHistoryEnabled, true);
+  assert.equal(settings.syncEnabled, false);
   assert.equal(settings.trackCodingActivity, true);
   assert.equal(settings.trackAgentUsage, true);
+  assert.equal(settings.trackTerminalActivity, true);
   assert.equal(settings.trackBuildFailures, true);
   assert.equal(settings.cloudSyncEnabled, false);
   assert.equal(settings.syncPreference, 'never');
@@ -38,18 +40,23 @@ test('privacy controls disable only the selected collection boundaries', () => {
   configuration = {
     'telemetry.trackCodingActivity': false,
     'telemetry.trackAgentUsage': false,
+    'telemetry.trackTerminalActivity': false,
     localHistoryEnabled: false,
     cloudSyncEnabled: true,
+    syncEnabled: true,
   };
   const settings = getPrivacySettings();
   assert.equal(settings.trackCodingActivity, false);
   assert.equal(settings.trackAgentUsage, false);
+  assert.equal(settings.trackTerminalActivity, false);
   assert.equal(settings.localHistoryEnabled, false);
   assert.equal(settings.trackBuildFailures, true);
   assert.equal(settings.cloudSyncEnabled, true);
+  assert.equal(settings.syncEnabled, true);
   assert.equal(settings.syncPreference, 'never');
   assert.equal(isTelemetryCategoryEnabled('codingActivity'), false);
   assert.equal(isTelemetryCategoryEnabled('agentUsage'), false);
+  assert.equal(isTelemetryCategoryEnabled('terminalActivity'), false);
   assert.equal(isTelemetryCategoryEnabled('buildFailures'), true);
 });
 
@@ -66,5 +73,6 @@ test('the master setting disables every telemetry category', () => {
   configuration = { enabled: false };
   assert.equal(isTelemetryCategoryEnabled('codingActivity'), false);
   assert.equal(isTelemetryCategoryEnabled('agentUsage'), false);
+  assert.equal(isTelemetryCategoryEnabled('terminalActivity'), false);
   assert.equal(isTelemetryCategoryEnabled('buildFailures'), false);
 });

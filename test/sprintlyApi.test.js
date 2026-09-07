@@ -174,6 +174,20 @@ test('sync-disabled responses are distinct from transient HTTP failures', async 
   });
 });
 
+test('successful-looking sync-disabled responses still stop future uploads', async () => {
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([{ status: 200, headers: {}, body: JSON.stringify({
+      ok: false, syncDisabled: true,
+    }) }], []),
+  });
+  await assert.rejects(() => client.uploadSessions([session()]), (error) => {
+    assert.equal(error.kind, 'sync-disabled');
+    return true;
+  });
+});
+
 test('upload client rejects batches above the website session limit before sending', async () => {
   const calls = [];
   const client = new SprintlyApiClient({

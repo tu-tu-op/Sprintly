@@ -20,8 +20,10 @@ function getPrivacySettings() {
         enabled: get('enabled', true) !== false,
         autoPromptOnStartup: get('autoPromptOnStartup', true) !== false,
         localHistoryEnabled: get('localHistoryEnabled', true) !== false,
+        syncEnabled: get('syncEnabled', false) === true,
         trackCodingActivity: get('telemetry.trackCodingActivity', true) !== false,
         trackAgentUsage: get('telemetry.trackAgentUsage', true) !== false,
+        trackTerminalActivity: get('telemetry.trackTerminalActivity', true) !== false,
         trackBuildFailures: get('telemetry.trackBuildFailures', true) !== false,
         cloudSyncEnabled: get('cloudSyncEnabled', false) === true,
         aiTrackingVisible: get('telemetry.showAiTracking', true) !== false,
@@ -40,6 +42,8 @@ function isTelemetryCategoryEnabled(category) {
         return settings.trackCodingActivity;
     if (category === 'agentUsage')
         return settings.trackAgentUsage;
+    if (category === 'terminalActivity')
+        return settings.trackTerminalActivity;
     return settings.trackBuildFailures;
 }
 //# sourceMappingURL=privacySettings.js.map

@@ -389,6 +389,47 @@ export function registerCommands(
     showSyncResult(result, 'Pending session sync');
   };
 
+  const migrateLocalSessions = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const records = historyStore.list();
+    if (!records.length) {
+      void vscode.window.showInformationMessage('There are no completed local sessions to migrate.');
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Migrate ${records.length} completed local session${records.length === 1 ? '' : 's'} to Sprintly? `
+      + 'Only validated aggregate metrics will be sent; source code, file names, commands, output, and prompts stay local.',
+      { modal: true },
+      'Migrate Local Sessions',
+    );
+    if (confirmation !== 'Migrate Local Sessions') return;
+    const result = await syncService.migrateLocalSessions(records);
+    showSyncResult(result, 'Local session migration');
+  };
+
+  const clearSyncQueue = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const status = syncService.getStatus();
+    if (status.pendingCount === 0 && status.rejectedCount === 0) {
+      void vscode.window.showInformationMessage('The local Sprintly sync queue is already empty.');
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Clear ${status.pendingCount + status.rejectedCount} pending or rejected local upload record${status.pendingCount + status.rejectedCount === 1 ? '' : 's'}? Session history will remain.`,
+      { modal: true },
+      'Clear Sync Queue',
+    );
+    if (confirmation !== 'Clear Sync Queue') return;
+    await syncService.clearQueuedSessions();
+    void vscode.window.showInformationMessage('Local Sprintly sync queue cleared. Session history remains local.');
+  };
+
   const viewSyncStatus = async (): Promise<void> => {
     if (!syncService) {
       void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
@@ -510,6 +551,8 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.syncCurrentSession', syncCurrentSession),
     vscode.commands.registerCommand('sprintly.syncPendingSessions', syncPendingSessions),
     vscode.commands.registerCommand('sprintly.syncNow', syncPendingSessions),
+    vscode.commands.registerCommand('sprintly.migrateLocalSessions', migrateLocalSessions),
+    vscode.commands.registerCommand('sprintly.clearSyncQueue', clearSyncQueue),
     vscode.commands.registerCommand('sprintly.viewSyncStatus', viewSyncStatus),
     vscode.commands.registerCommand('sprintly.disconnect', disconnect),
     vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite),
@@ -644,7 +687,10 @@ function formatSyncStatus(status: ReturnType<SprintlySyncService['getStatus']>):
     `Environment: ${environmentLabel(status.environment)}`,
     `API: ${status.apiUrl}`,
     `Preference: ${status.syncPreference}${status.localOnly ? ' (local-only)' : ''}`,
-    `Pending: ${status.pendingCount} · Failed: ${status.failedCount}`,
+    `Sync enabled: ${status.syncEnabled ? 'yes' : 'no'}`,
+    `Pending: ${status.pendingCount} · Rejected: ${status.rejectedCount}`,
+    ...(status.pairingRequired ? ['Pairing required: yes'] : []),
+    ...(status.syncDisabled ? ['Website sync: disabled by account settings'] : []),
     `Last successful sync: ${lastSuccess}${error}`,
   ].join('\n');
 }

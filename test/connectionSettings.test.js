@@ -23,6 +23,7 @@ test('connection settings default to local API and local-only sync', () => {
   assert.equal(settings.apiUrl, DEFAULT_SPRINTLY_API_URL);
   assert.equal(settings.environment, 'development');
   assert.equal(settings.syncPreference, 'never');
+  assert.equal(settings.syncEnabled, false);
   assert.equal(settings.leaderboardOptIn, false);
 });
 
@@ -30,6 +31,7 @@ test('connection settings support remote extension hosts and production selectio
   configuration = {
     apiUrl: 'http://192.168.1.40:3000',
     apiEnvironment: 'production',
+    syncEnabled: true,
     syncPreference: 'selected',
     leaderboardOptIn: true,
     developmentToken: 'configured-token',
@@ -38,6 +40,7 @@ test('connection settings support remote extension hosts and production selectio
   assert.equal(settings.apiUrl, 'http://192.168.1.40:3000');
   assert.equal(settings.environment, 'production');
   assert.equal(settings.syncPreference, 'selected');
+  assert.equal(settings.syncEnabled, true);
   assert.equal(settings.leaderboardOptIn, true);
   assert.equal(environmentLabel(settings.environment), 'Production');
 });

@@ -6,6 +6,8 @@ export type SprintlyApiEnvironment = 'development' | 'production';
 export interface SprintlyConnectionSettings {
   apiUrl: string;
   environment: SprintlyApiEnvironment;
+  /** Optional for compatibility with callers created before this setting existed. */
+  syncEnabled?: boolean;
   syncPreference: SyncPreference;
   leaderboardOptIn: boolean;
   websiteUrl: string;
@@ -24,6 +26,7 @@ export function getSprintlyConnectionSettings(): SprintlyConnectionSettings {
   return {
     apiUrl: get<string>('apiUrl', DEFAULT_SPRINTLY_API_URL).trim() || DEFAULT_SPRINTLY_API_URL,
     environment: environment === 'production' ? 'production' : 'development',
+    syncEnabled: get<boolean>('syncEnabled', false) === true,
     syncPreference: isSyncPreference(configuredPreference) ? configuredPreference : 'never',
     leaderboardOptIn: get<boolean>('leaderboardOptIn', false) === true,
     websiteUrl: get<string>('websiteUrl', DEFAULT_SPRINTLY_WEBSITE_URL),

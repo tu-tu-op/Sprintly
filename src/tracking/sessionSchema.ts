@@ -116,6 +116,7 @@ export interface DevStravaExportPayload {
     telemetryCategories: {
       codingActivity: boolean;
       agentUsage: boolean;
+      terminalActivity: boolean;
       buildFailures: boolean;
     };
     aiTracking: boolean;

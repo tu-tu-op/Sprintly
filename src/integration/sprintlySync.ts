@@ -19,7 +19,8 @@ import {
 import { SprintlyTokenStore } from './secureTokenStore';
 import { SyncOutbox, SyncOutboxEntry } from './syncOutbox';
 import { SprintlyConnectionStatus, SyncStateStore } from './syncState';
-import { mapSessionRecord } from '../tracking/sprintlyContract';
+import { getPrivacySettings, SprintlyPrivacySettings } from '../tracking/privacySettings';
+import { mapSessionRecord, SprintlySessionContract } from '../tracking/sprintlyContract';
 import type { SessionHistoryRecord } from '../tracking/localSessionStore';
 
 export interface SprintlySyncStatus {
@@ -34,6 +35,7 @@ export interface SprintlySyncStatus {
   lastSuccessfulSync: number | null;
   lastSyncError: string | null;
   pairingRequired: boolean;
+  syncEnabled: boolean;
   syncDisabled: boolean;
   rejectedCount: number;
 }
@@ -116,6 +118,7 @@ export class SprintlySyncService {
       lastSuccessfulSync: state.lastSuccessfulSync,
       lastSyncError: state.lastSyncError,
       pairingRequired: this.authBlocked,
+      syncEnabled: settings.syncEnabled !== false,
       syncDisabled: state.syncDisabled,
       rejectedCount: this.options.outbox.rejectedCount(),
     };
@@ -236,6 +239,57 @@ export class SprintlySyncService {
     return this.queueAndSync(record, false);
   }
 
+  /** Explicitly migrate completed local history; pairing never triggers this automatically. */
+  async migrateLocalSessions(records: readonly SessionHistoryRecord[]): Promise<SyncOperationResult> {
+    const settings = this.readSettings();
+    const blocked = this.sessionUploadPolicy(settings, true);
+    if (blocked) return blocked;
+    if (!records.length) return emptyResult('synced');
+
+    const mapped = [] as Array<ReturnType<typeof mapSessionRecord>>;
+    try {
+      // Map the entire selection before mutating the queue. A malformed legacy
+      // record must not leave a half-migrated batch behind.
+      for (const record of records) mapped.push(this.mapForUpload(record));
+    } catch (error) {
+      const message = errorMessage(error);
+      this.options.stateStore.markSyncFailed(message);
+      await this.flushState();
+      return failedResult(message);
+    }
+
+    const entries: SyncOutboxEntry[] = [];
+    try {
+      for (const entry of mapped) {
+        entries.push(this.options.outbox.enqueue(
+          entry.payload,
+          entry.warnings.map((warning) => `${warning.field}: ${warning.message}`),
+        ));
+      }
+    } catch (error) {
+      const message = errorMessage(error);
+      this.options.stateStore.markSyncFailed(message);
+      await this.flushState();
+      return failedResult(message, entries.length);
+    }
+
+    this.notify();
+    const pending = entries.filter((entry) => entry.state !== 'synced');
+    if (!pending.length) {
+      await this.flushState();
+      return {
+        ...emptyResult('synced'),
+        queuedCount: entries.length,
+        syncedCount: entries.length,
+        warnings: mapped.flatMap((entry) => entry.warnings.map((warning) => `${warning.field}: ${warning.message}`)),
+      };
+    }
+    const result = await this.syncEntries(pending);
+    result.queuedCount = entries.length;
+    result.warnings = mapped.flatMap((entry) => entry.warnings.map((warning) => `${warning.field}: ${warning.message}`));
+    return result;
+  }
+
   /** Upload due entries; manual invocations also retry failed entries immediately. */
   async syncPendingSessions(manual = true): Promise<SyncOperationResult> {
     const settings = this.readSettings();
@@ -252,6 +306,7 @@ export class SprintlySyncService {
       this.options.stateStore.clearSyncDisabled();
       this.options.outbox.retryFailed();
       this.notify();
+      await this.flushState();
     }
     const entries = this.options.outbox.list().filter((entry) => {
       if (entry.state !== 'pending') return false;
@@ -263,6 +318,14 @@ export class SprintlySyncService {
   /** Called at activation and after connectivity returns. */
   async resume(): Promise<SyncOperationResult> {
     const settings = this.readSettings();
+    if (settings.syncEnabled === false || !getPrivacySettings().enabled) {
+      return skippedResult(
+        settings.syncEnabled === false
+          ? 'Extension synchronization is disabled in Sprintly Settings.'
+          : 'Sprintly is disabled in Settings.',
+        this.options.outbox.pendingCount(),
+      );
+    }
     if (settings.syncPreference === 'never' || settings.syncPreference === 'leaderboard') {
       return this.sessionUploadPolicy(settings, false) ?? emptyResult('skipped');
     }
@@ -290,7 +353,7 @@ export class SprintlySyncService {
     if (blocked) return blocked;
     let mapped;
     try {
-      mapped = mapSessionRecord(record);
+      mapped = this.mapForUpload(record);
     } catch (error) {
       const message = errorMessage(error);
       this.options.stateStore.markSyncFailed(message);
@@ -309,6 +372,13 @@ export class SprintlySyncService {
       this.options.stateStore.markSyncFailed(message);
       await this.flushState();
       return failedResult(message);
+    }
+    if (entry.state === 'synced') {
+      return {
+        ...emptyResult('synced'),
+        syncedCount: 1,
+        warnings: mapped.warnings.map((warning) => `${warning.field}: ${warning.message}`),
+      };
     }
     this.notify();
     const result = await this.syncEntries([entry]);
@@ -337,6 +407,14 @@ export class SprintlySyncService {
       return emptyResult('queued');
     }
     const settings = this.readSettings();
+    if (settings.syncEnabled === false || !getPrivacySettings().enabled) {
+      return skippedResult(
+        settings.syncEnabled === false
+          ? 'Extension synchronization is disabled in Sprintly Settings.'
+          : 'Sprintly is disabled in Settings.',
+        entries.length,
+      );
+    }
     const state = this.options.stateStore.get();
     if (state.syncDisabled) {
       const message = state.syncDisabledReason
@@ -429,7 +507,10 @@ export class SprintlySyncService {
     entries: readonly SyncOutboxEntry[],
   ): Promise<UploadBatchSummary> {
     try {
-      const response = await this.createClient(settings, token).uploadSessions(entries.map((entry) => entry.payload));
+      const privacy = getPrivacySettings();
+      const response = await this.createClient(settings, token).uploadSessions(
+        entries.map((entry) => redactSessionForPrivacy(entry.payload, privacy)),
+      );
       return this.applyUploadResult(entries, response);
     } catch (error) {
       if (isPayloadTooLarge(error) && entries.length > 1) {
@@ -528,6 +609,12 @@ export class SprintlySyncService {
     settings: SprintlyConnectionSettings,
     explicit: boolean,
   ): SyncOperationResult | null {
+    if (settings.syncEnabled === false) {
+      return skippedResult('Extension synchronization is disabled in Sprintly Settings.');
+    }
+    if (!getPrivacySettings().enabled) {
+      return skippedResult('Sprintly is disabled in Settings.');
+    }
     if (settings.syncPreference === 'never') {
       return {
         state: 'skipped', queuedCount: 0, syncedCount: 0, duplicateCount: 0, rejected: [], warnings: [],
@@ -549,6 +636,14 @@ export class SprintlySyncService {
       };
     }
     return null;
+  }
+
+  private mapForUpload(record: SessionHistoryRecord): ReturnType<typeof mapSessionRecord> {
+    const mapped = mapSessionRecord(record);
+    return {
+      ...mapped,
+      payload: redactSessionForPrivacy(mapped.payload, getPrivacySettings()),
+    };
   }
 
   private async flushState(): Promise<void> {
@@ -574,6 +669,57 @@ function failedResult(error: string, queuedCount = 0): SyncOperationResult {
   return {
     state: 'failed', queuedCount, syncedCount: 0, duplicateCount: 0, rejected: [], warnings: [], error,
   };
+}
+
+function skippedResult(error: string, queuedCount = 0): SyncOperationResult {
+  return {
+    state: 'skipped', queuedCount, syncedCount: 0, duplicateCount: 0, rejected: [], warnings: [], error,
+  };
+}
+
+function redactSessionForPrivacy(
+  payload: SprintlySessionContract,
+  privacy: SprintlyPrivacySettings,
+): SprintlySessionContract {
+  const redacted = JSON.parse(JSON.stringify(payload)) as SprintlySessionContract;
+  if (!privacy.enabled || !privacy.trackCodingActivity) {
+    redacted.coding = {
+      manualPercent: 0,
+      aiAssistedPercent: 0,
+      automationPercent: 0,
+      unknownBulkEditPercent: 100,
+    };
+    redacted.activity = {
+      edits: 0,
+      saves: 0,
+      filesTouched: 0,
+      linesChangedEstimate: 0,
+    };
+  }
+  if (!privacy.enabled || !privacy.trackTerminalActivity) {
+    redacted.terminal = {
+      totalCommands: 0,
+      build: 0,
+      test: 0,
+      git: 0,
+      packageManager: 0,
+      devServer: 0,
+      lint: 0,
+      other: 0,
+    };
+  }
+  if (!privacy.enabled || !privacy.trackAgentUsage) {
+    redacted.ai = {
+      claudeCodePrompts: 0,
+      codexPrompts: 0,
+      copilotPrompts: 0,
+      tokenTotals: { claude: 0, codex: 0, copilot: 0 },
+    };
+  }
+  if (!privacy.enabled || !privacy.trackBuildFailures) {
+    redacted.reliability = { failures: 0, recoveredFailures: 0, recoveryRate: 100 };
+  }
+  return redacted;
 }
 
 function errorMessage(error: unknown): string {

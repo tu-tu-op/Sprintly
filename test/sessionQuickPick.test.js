@@ -178,6 +178,7 @@ test('Quick Panel includes report redirect and website sync actions', () => {
       connectionStatus: 'disconnected', apiUrl: 'http://localhost:3000', environment: 'development',
       syncPreference: 'never', localOnly: true, leaderboardOptIn: false,
       pendingCount: 2, failedCount: 1, lastSuccessfulSync: null, lastSyncError: null,
+      syncEnabled: false, syncDisabled: false, rejectedCount: 1, pairingRequired: false,
     },
   );
   const labels = items.map((item) => item.label).join('\n');

@@ -24,6 +24,11 @@ type PanelAction =
   | 'viewWebsite'
   | 'syncCurrent'
   | 'syncPending'
+  | 'connectExtension'
+  | 'enterPairingCode'
+  | 'migrateLocalSessions'
+  | 'clearSyncQueue'
+  | 'disconnect'
   | 'testConnection'
   | 'viewSyncStatus';
 
@@ -263,13 +268,24 @@ export function buildPanelItems(
   }
 
   if (syncStatus) {
+    const rejectedCount = syncStatus.rejectedCount ?? syncStatus.failedCount;
+    const connectionDescription = syncStatus.connectionStatus === 'connected'
+      ? `${syncStatus.pendingCount} pending · ${rejectedCount} rejected`
+      : `${syncStatus.pendingCount} pending · ${rejectedCount} rejected · reconnect required`;
+    const connectionDetail = [
+      syncStatus.environment,
+      syncStatus.syncPreference,
+      syncStatus.localOnly ? 'local-only' : null,
+      syncStatus.syncEnabled === false ? 'extension sync disabled' : null,
+      syncStatus.syncDisabled ? 'website sync disabled' : null,
+    ].filter((part): part is string => part !== null).join(' · ');
     items.push(
       separator('WEBSITE SYNC'),
       item(
         syncStatus.connectionStatus === 'connected' ? 'cloud' : 'cloud-offline',
         syncStatus.connectionStatus === 'connected' ? 'Website connected' : 'Website disconnected',
-        `${syncStatus.pendingCount} pending Â· ${syncStatus.failedCount} failed`,
-        `${syncStatus.environment} Â· ${syncStatus.syncPreference}${syncStatus.localOnly ? ' Â· local-only' : ''}`,
+        connectionDescription,
+        connectionDetail,
       ),
       syncStatus.lastSuccessfulSync
         ? item('check', 'Last successful sync', new Date(syncStatus.lastSuccessfulSync).toLocaleString())
@@ -277,9 +293,25 @@ export function buildPanelItems(
       ...(syncStatus.lastSyncError
         ? [item('warning', 'Last sync error', syncStatus.lastSyncError)]
         : []),
+      ...(syncStatus.connectionStatus !== 'connected' || syncStatus.pairingRequired
+        ? [actionItem('plug', 'Connect Extension', 'Open Sprintly and complete pairing', 'connectExtension')]
+        : []),
+      ...(syncStatus.environment === 'production'
+        ? [actionItem('key', 'Enter Pairing Code', 'Use a new one-time code from Sprintly Settings', 'enterPairingCode')]
+        : []),
+      ...(record
+        ? [actionItem('cloud-upload', 'Sync Selected Session', 'Upload this completed session now', 'syncCurrent')]
+        : []),
       actionItem('cloud-upload', 'Sync Pending Sessions', 'Retry queued and failed sessions', 'syncPending'),
+      actionItem('archive', 'Migrate Local Sessions', 'Explicitly upload completed local history', 'migrateLocalSessions'),
+      ...(syncStatus.pendingCount > 0 || rejectedCount > 0
+        ? [actionItem('trash', 'Clear Local Sync Queue', 'Remove pending and rejected upload records', 'clearSyncQueue')]
+        : []),
       actionItem('plug', 'Test Connection', `Check ${syncStatus.apiUrl}`, 'testConnection'),
       actionItem('info', 'View Sync Status', 'Show connection and queue details', 'viewSyncStatus'),
+      ...(syncStatus.connectionStatus === 'connected'
+        ? [actionItem('sign-out', 'Disconnect Extension', 'Revoke local token and stop uploads', 'disconnect')]
+        : []),
     );
   }
 
@@ -426,6 +458,11 @@ function runPanelAction(action: PanelAction): void {
     viewWebsite: 'sprintly.connectWebsite',
     syncCurrent: 'sprintly.syncCurrentSession',
     syncPending: 'sprintly.syncPendingSessions',
+    connectExtension: 'sprintly.connectExtension',
+    enterPairingCode: 'sprintly.enterPairingCode',
+    migrateLocalSessions: 'sprintly.migrateLocalSessions',
+    clearSyncQueue: 'sprintly.clearSyncQueue',
+    disconnect: 'sprintly.disconnect',
     testConnection: 'sprintly.testConnection',
     viewSyncStatus: 'sprintly.viewSyncStatus',
   };

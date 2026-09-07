@@ -17,6 +17,7 @@ function getSprintlyConnectionSettings() {
     return {
         apiUrl: get('apiUrl', exports.DEFAULT_SPRINTLY_API_URL).trim() || exports.DEFAULT_SPRINTLY_API_URL,
         environment: environment === 'production' ? 'production' : 'development',
+        syncEnabled: get('syncEnabled', false) === true,
         syncPreference: (0, privacySettings_1.isSyncPreference)(configuredPreference) ? configuredPreference : 'never',
         leaderboardOptIn: get('leaderboardOptIn', false) === true,
         websiteUrl: get('websiteUrl', exports.DEFAULT_SPRINTLY_WEBSITE_URL),

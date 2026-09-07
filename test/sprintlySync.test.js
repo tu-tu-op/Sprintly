@@ -2,10 +2,15 @@ const assert = require('node:assert/strict');
 const Module = require('node:module');
 const test = require('node:test');
 
+let privacyConfiguration = {};
 const originalLoad = Module._load;
 Module._load = function loadWithVscodeStub(request, parent, isMain) {
   if (request === 'vscode') {
-    return { workspace: { getConfiguration: () => ({ get: (_key, fallback) => fallback }) } };
+    return {
+      workspace: {
+        getConfiguration: () => ({ get: (key, fallback) => privacyConfiguration[key] ?? fallback }),
+      },
+    };
   }
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -72,6 +77,7 @@ function setup(settings, upload, clock = () => 2_000) {
     tokenStore: new SprintlyTokenStore(secrets), outbox, stateStore,
     readSettings: () => ({
       apiUrl: 'http://localhost:3000', environment: 'development',
+      syncEnabled: settings.syncEnabled ?? true,
       syncPreference: settings.syncPreference ?? 'completed',
       leaderboardOptIn: settings.leaderboardOptIn ?? false,
       websiteUrl: 'http://localhost:3000',
@@ -197,6 +203,7 @@ test('production pairing stores a device token and uses it for the next upload',
     tokenStore: new SprintlyTokenStore(secrets), outbox, stateStore,
     readSettings: () => ({
       apiUrl: 'https://sprintly.example', environment: 'production', syncPreference: 'completed',
+      syncEnabled: true,
       leaderboardOptIn: false, websiteUrl: 'https://sprintly.example/connect',
     }),
     pairingAdapter: new DelegatingPairingAdapter(async ({ code }) => ({ ok: true, token: `device-${code}` })),
@@ -290,4 +297,61 @@ test('website-disabled sync stops automatic uploads until an explicit manual ret
   const manual = await setupValue.service.syncPendingSessions(true);
   assert.equal(manual.state, 'synced');
   assert.equal(setupValue.uploadCalls, 2);
+});
+
+test('local history migration is explicit and uploads the selected completed records', async () => {
+  const setupValue = setup({}, (sessions) => ({
+    acceptedSessionIds: sessions.map((entry) => entry.sessionId),
+    duplicateSessionIds: [],
+    rejected: [],
+  }));
+  const result = await setupValue.service.migrateLocalSessions([record('legacy-one'), record('legacy-two')]);
+  assert.equal(result.state, 'synced');
+  assert.equal(result.queuedCount, 2);
+  assert.equal(result.syncedCount, 2);
+  assert.equal(setupValue.uploadCalls, 1);
+  assert.equal(setupValue.outbox.get('legacy-one').state, 'synced');
+  assert.equal(setupValue.outbox.get('legacy-two').state, 'synced');
+});
+
+test('extension sync disabled preserves local history and queue without a network call', async () => {
+  const setupValue = setup({ syncEnabled: false }, {
+    acceptedSessionIds: ['sync-session'], duplicateSessionIds: [], rejected: [],
+  });
+  const result = await setupValue.service.syncCompletedSession(record());
+  assert.equal(result.state, 'skipped');
+  assert.equal(setupValue.uploadCalls, 0);
+  assert.equal(setupValue.outbox.list().length, 0);
+});
+
+test('disabled AI and terminal privacy categories are redacted before upload', async () => {
+  privacyConfiguration = {
+    'telemetry.trackAgentUsage': false,
+    'telemetry.trackTerminalActivity': false,
+  };
+  const source = record('privacy-session');
+  source.agentPrompts = { claudeCode: 2, codex: 3, githubCopilot: 4 };
+  source.tokenStats = {
+    claudeCode: { input: 10, output: 20, cacheRead: 0, cacheCreate: 0 },
+    codex: { total: 30 },
+    githubCopilot: { input: 40, output: 50, credits: 0 },
+  };
+  source.terminalCommands = 4;
+  source.terminalCommandsByCategory.test = 4;
+  let uploaded;
+  const setupValue = setup({ syncEnabled: true }, (sessions) => {
+    uploaded = sessions[0];
+    return { acceptedSessionIds: ['privacy-session'], duplicateSessionIds: [], rejected: [] };
+  });
+  const result = await setupValue.service.syncCompletedSession(source);
+  assert.equal(result.state, 'synced');
+  assert.deepEqual(uploaded.ai, {
+    claudeCodePrompts: 0, codexPrompts: 0, copilotPrompts: 0,
+    tokenTotals: { claude: 0, codex: 0, copilot: 0 },
+  });
+  assert.deepEqual(uploaded.terminal, {
+    totalCommands: 0, build: 0, test: 0, git: 0,
+    packageManager: 0, devServer: 0, lint: 0, other: 0,
+  });
+  privacyConfiguration = {};
 });

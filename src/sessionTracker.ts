@@ -166,11 +166,11 @@ export class SessionTracker implements vscode.Disposable {
         this.stats.activeFiles.add(e.document.fileName);
       }),
       vscode.window.onDidOpenTerminal(() => {
-        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('terminalActivity')) return;
         this.stats.terminalOpens++;
       }),
       vscode.window.onDidEndTerminalShellExecution((event) => {
-        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('codingActivity')) return;
+        if (!this.stats.isRecording || this.stats.isPaused || !isTelemetryCategoryEnabled('terminalActivity')) return;
         const category = classifyTerminalCommand(event.execution.commandLine?.value);
         this.stats.terminalCommands++;
         this.stats.terminalCommandsByCategory[category]++;
