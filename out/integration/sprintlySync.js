@@ -40,6 +40,8 @@ class SprintlySyncService {
             lastSuccessfulSync: state.lastSuccessfulSync,
             lastSyncError: state.lastSyncError,
             pairingRequired: this.authBlocked,
+            syncDisabled: state.syncDisabled,
+            rejectedCount: this.options.outbox.rejectedCount(),
         };
     }
     onDidChange(listener) {
@@ -50,7 +52,7 @@ class SprintlySyncService {
         const settings = this.readSettings();
         try {
             await this.createClient(settings, null).health();
-            this.options.stateStore.markConnected();
+            this.options.stateStore.markConnected(!this.options.stateStore.get().syncDisabled);
             await this.flushState();
         }
         catch (error) {
@@ -157,7 +159,12 @@ class SprintlySyncService {
         const blocked = this.sessionUploadPolicy(settings, manual);
         if (blocked)
             return blocked;
+        const state = this.options.stateStore.get();
+        if (state.syncDisabled && !manual) {
+            return failedResult(state.syncDisabledReason ?? 'Website synchronization is disabled in Sprintly Settings.', this.options.outbox.pendingCount());
+        }
         if (manual) {
+            this.options.stateStore.clearSyncDisabled();
             this.options.outbox.retryFailed();
             this.notify();
         }
@@ -173,6 +180,10 @@ class SprintlySyncService {
         const settings = this.readSettings();
         if (settings.syncPreference === 'never' || settings.syncPreference === 'leaderboard') {
             return this.sessionUploadPolicy(settings, false) ?? emptyResult('skipped');
+        }
+        const state = this.options.stateStore.get();
+        if (state.syncDisabled) {
+            return failedResult(state.syncDisabledReason ?? 'Website synchronization is disabled in Sprintly Settings.', this.options.outbox.pendingCount());
         }
         const entries = this.options.outbox.due(this.now());
         return this.syncEntries(entries);
@@ -195,7 +206,16 @@ class SprintlySyncService {
             await this.flushState();
             return failedResult(message);
         }
-        const entry = this.options.outbox.enqueue(mapped.payload, mapped.warnings.map((warning) => `${warning.field}: ${warning.message}`), explicit);
+        let entry;
+        try {
+            entry = this.options.outbox.enqueue(mapped.payload, mapped.warnings.map((warning) => `${warning.field}: ${warning.message}`), explicit);
+        }
+        catch (error) {
+            const message = errorMessage(error);
+            this.options.stateStore.markSyncFailed(message);
+            await this.flushState();
+            return failedResult(message);
+        }
         this.notify();
         const result = await this.syncEntries([entry]);
         result.queuedCount = 1;
@@ -221,6 +241,12 @@ class SprintlySyncService {
             return emptyResult('queued');
         }
         const settings = this.readSettings();
+        const state = this.options.stateStore.get();
+        if (state.syncDisabled) {
+            const message = state.syncDisabledReason
+                ?? 'Website synchronization is disabled in Sprintly Settings.';
+            return failedResult(message, entries.length);
+        }
         if (this.authBlocked) {
             const message = 'Sprintly authorization expired. Pair the extension again before syncing.';
             this.options.stateStore.markSyncFailed(message);
@@ -240,63 +266,124 @@ class SprintlySyncService {
             await this.flushState();
             return failedResult(message, entries.length);
         }
+        if (!token) {
+            const message = 'No Sprintly bearer token is configured.';
+            this.options.stateStore.markSyncFailed(message);
+            await this.flushState();
+            return failedResult(message, entries.length);
+        }
+        const total = emptyBatchSummary(entries);
+        for (const batch of chunkEntries(entries)) {
+            const result = await this.uploadChunk(settings, token, batch);
+            mergeBatchSummary(total, result);
+            if (result.error)
+                break;
+        }
+        const successfulIds = new Set([
+            ...total.acceptedSessionIds,
+            ...total.duplicateSessionIds,
+        ]);
+        const successfulCount = successfulIds.size;
+        const completeSuccess = !total.error
+            && total.rejected.length === 0
+            && successfulCount === entries.length;
+        if (completeSuccess) {
+            this.options.stateStore.markSyncSucceeded(this.now());
+        }
+        else if (!total.error || this.options.stateStore.get().lastSyncError === null) {
+            this.options.stateStore.markSyncFailed(total.error
+                ?? (total.rejected.length
+                    ? total.rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ')
+                    : 'The website returned an incomplete upload result.'));
+        }
+        await this.flushState();
+        this.notify();
+        const queuedCount = Math.max(0, entries.length - successfulCount - total.rejected.length);
+        return {
+            state: completeSuccess
+                ? 'synced'
+                : successfulCount > 0 ? 'partial' : 'failed',
+            queuedCount,
+            syncedCount: total.acceptedSessionIds.length,
+            duplicateCount: total.duplicateSessionIds.length,
+            rejected: total.rejected,
+            warnings: total.warnings,
+            ...(total.error ? { error: total.error } : {}),
+        };
+    }
+    async uploadChunk(settings, token, entries) {
         const syncing = entries
             .map((entry) => this.options.outbox.begin(entry.sessionId, this.now()))
             .filter((entry) => entry !== null && entry.state === 'syncing');
         if (!syncing.length)
-            return emptyResult('queued');
+            return emptyBatchSummary(entries);
         this.notify();
+        return this.uploadSyncingChunk(settings, token, syncing);
+    }
+    async uploadSyncingChunk(settings, token, entries) {
         try {
-            const response = await this.createClient(settings, token).uploadSessions(syncing.map((entry) => entry.payload));
-            return this.applyUploadResult(syncing, response);
+            const response = await this.createClient(settings, token).uploadSessions(entries.map((entry) => entry.payload));
+            return this.applyUploadResult(entries, response);
         }
         catch (error) {
-            return this.applyUploadError(syncing, error);
+            if (isPayloadTooLarge(error) && entries.length > 1) {
+                // The server may apply a stricter byte calculation than the client.
+                // Return these entries to pending before trying bounded sub-batches.
+                for (const entry of entries)
+                    this.options.outbox.releaseSyncing(entry.sessionId);
+                const midpoint = Math.ceil(entries.length / 2);
+                const left = await this.uploadChunk(settings, token, entries.slice(0, midpoint));
+                if (left.error)
+                    return left;
+                const right = await this.uploadChunk(settings, token, entries.slice(midpoint));
+                return mergeBatchSummaries(left, right);
+            }
+            return this.applyUploadError(entries, error);
         }
     }
-    async applyUploadResult(entries, response) {
-        const accepted = new Set(response.acceptedSessionIds);
-        const duplicates = new Set(response.duplicateSessionIds);
-        const rejected = response.rejected;
-        const rejectedIds = new Set(rejected.map((entry) => entry.sessionId));
+    applyUploadResult(entries, response) {
+        const entryIds = new Set(entries.map((entry) => entry.sessionId));
+        const accepted = new Set(response.acceptedSessionIds.filter((id) => entryIds.has(id)));
+        const duplicates = new Set(response.duplicateSessionIds.filter((id) => entryIds.has(id)));
+        const rejectionById = new Map(response.rejected
+            .filter((entry) => entryIds.has(entry.sessionId))
+            .map((entry) => [entry.sessionId, entry.reason]));
+        const rejected = [];
         for (const entry of entries) {
             if (accepted.has(entry.sessionId) || duplicates.has(entry.sessionId)) {
                 this.options.outbox.markSynced(entry.sessionId);
             }
-            else if (rejectedIds.has(entry.sessionId)) {
-                const rejection = rejected.find((candidate) => candidate.sessionId === entry.sessionId);
-                this.options.outbox.markFailed(entry.sessionId, rejection?.reason ?? 'The website rejected this session.', false, this.now());
-            }
             else {
-                this.options.outbox.markFailed(entry.sessionId, 'The website did not report a result for this session.', false, this.now());
+                const reason = rejectionById.get(entry.sessionId)
+                    ?? 'The website did not report a result for this session.';
+                this.options.outbox.markFailed(entry.sessionId, reason, false, this.now());
+                rejected.push({ sessionId: entry.sessionId, reason });
             }
         }
-        const successCount = accepted.size + duplicates.size;
-        if (successCount > 0 && rejected.length === 0 && successCount === entries.length) {
-            this.options.stateStore.markSyncSucceeded(this.now());
-        }
-        else {
-            this.options.stateStore.markSyncFailed(rejected.length ? rejected.map((entry) => `${entry.sessionId}: ${entry.reason}`).join('; ') : 'The website returned an incomplete upload result.');
-        }
-        await this.flushState();
-        this.notify();
         return {
-            state: successCount === entries.length ? 'synced' : successCount > 0 ? 'partial' : 'failed',
-            queuedCount: 0,
-            syncedCount: accepted.size,
-            duplicateCount: duplicates.size,
+            acceptedSessionIds: [...accepted],
+            duplicateSessionIds: [...duplicates],
             rejected,
             warnings: entries.flatMap((entry) => entry.compatibilityWarnings),
         };
     }
-    async applyUploadError(entries, error) {
+    applyUploadError(entries, error) {
         const apiError = error instanceof sprintlyApi_1.SprintlyApiError ? error : null;
         const message = errorMessage(error);
+        const rejectionById = new Map((apiError?.rejected ?? []).map((entry) => [entry.sessionId, entry.reason]));
+        const rejected = [];
         for (const entry of entries) {
-            const rejection = apiError?.rejected.find((candidate) => candidate.sessionId === entry.sessionId);
-            this.options.outbox.markFailed(entry.sessionId, rejection?.reason ?? message, apiError?.retryable ?? true, this.now());
+            const rejection = rejectionById.get(entry.sessionId);
+            this.options.outbox.markFailed(entry.sessionId, rejection ?? message, apiError?.kind === 'unauthorized' || apiError?.kind === 'revoked-device'
+                ? false
+                : apiError?.retryable ?? true, this.now());
+            if (rejection)
+                rejected.push({ sessionId: entry.sessionId, reason: rejection });
         }
-        if (apiError?.kind === 'revoked-device') {
+        if (apiError?.kind === 'sync-disabled') {
+            this.options.stateStore.markSyncDisabled(message);
+        }
+        else if (apiError?.kind === 'revoked-device') {
             this.inMemoryToken = null;
             this.authBlocked = true;
             this.options.stateStore.markRevoked(message);
@@ -312,14 +399,10 @@ class SprintlySyncService {
         else {
             this.options.stateStore.markSyncFailed(message);
         }
-        await this.flushState();
-        this.notify();
         return {
-            state: 'failed',
-            queuedCount: entries.length,
-            syncedCount: 0,
-            duplicateCount: 0,
-            rejected: apiError?.rejected ?? [],
+            acceptedSessionIds: [],
+            duplicateSessionIds: [],
+            rejected,
             warnings: entries.flatMap((entry) => entry.compatibilityWarnings),
             error: message,
         };
@@ -371,6 +454,58 @@ function failedResult(error, queuedCount = 0) {
     };
 }
 function errorMessage(error) {
-    return error instanceof Error ? error.message : 'Sprintly synchronization failed.';
+    const message = error instanceof Error ? error.message : 'Sprintly synchronization failed.';
+    return message
+        .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+        .replace(/(token|secret|password|code)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+        .slice(0, 500);
+}
+function emptyBatchSummary(entries = []) {
+    return {
+        acceptedSessionIds: [],
+        duplicateSessionIds: [],
+        rejected: [],
+        warnings: entries.flatMap((entry) => entry.compatibilityWarnings),
+    };
+}
+function mergeBatchSummary(target, next) {
+    target.acceptedSessionIds = unique([...target.acceptedSessionIds, ...next.acceptedSessionIds]);
+    target.duplicateSessionIds = unique([...target.duplicateSessionIds, ...next.duplicateSessionIds]);
+    const rejectedById = new Map(target.rejected.map((entry) => [entry.sessionId, entry]));
+    for (const entry of next.rejected)
+        rejectedById.set(entry.sessionId, entry);
+    target.rejected = [...rejectedById.values()];
+    target.warnings = [...target.warnings, ...next.warnings];
+    if (target.error === undefined && next.error !== undefined)
+        target.error = next.error;
+}
+function mergeBatchSummaries(left, right) {
+    const merged = emptyBatchSummary();
+    mergeBatchSummary(merged, left);
+    mergeBatchSummary(merged, right);
+    return merged;
+}
+function chunkEntries(entries) {
+    const chunks = [];
+    let current = [];
+    for (const entry of entries) {
+        const wouldExceedCount = current.length >= sprintlyApi_1.SPRINTLY_MAX_SESSIONS_PER_REQUEST;
+        const wouldExceedBytes = current.length > 0
+            && Buffer.byteLength((0, sprintlyApi_1.serializeSprintlyUploadEnvelope)([...current, entry].map((candidate) => candidate.payload)), 'utf8') > sprintlyApi_1.SPRINTLY_MAX_REQUEST_BYTES;
+        if (wouldExceedCount || wouldExceedBytes) {
+            chunks.push(current);
+            current = [];
+        }
+        current.push(entry);
+    }
+    if (current.length)
+        chunks.push(current);
+    return chunks;
+}
+function isPayloadTooLarge(error) {
+    return error instanceof sprintlyApi_1.SprintlyApiError && error.status === 413;
+}
+function unique(values) {
+    return [...new Set(values)];
 }
 //# sourceMappingURL=sprintlySync.js.map

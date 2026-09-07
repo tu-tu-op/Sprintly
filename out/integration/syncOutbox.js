@@ -6,6 +6,8 @@ exports.SYNC_OUTBOX_SCHEMA_VERSION = 'sprintly.sync-outbox.v1';
 exports.DEFAULT_SYNC_OUTBOX_KEY = 'sprintly.syncOutbox.v1';
 const DEFAULT_RETRY_BASE_MS = 60000;
 const DEFAULT_RETRY_MAX_MS = 3600000;
+const DEFAULT_MAX_ENTRIES = 1000;
+const DEFAULT_JITTER_RATIO = 0.2;
 /** Durable, aggregate-only upload queue. No token or local path is persisted. */
 class SyncOutbox {
     constructor(storage, options = {}) {
@@ -15,8 +17,11 @@ class SyncOutbox {
         this.now = options.now ?? Date.now;
         this.retryBaseMs = positiveInteger(options.retryBaseMs, DEFAULT_RETRY_BASE_MS);
         this.retryMaxMs = Math.max(this.retryBaseMs, positiveInteger(options.retryMaxMs, DEFAULT_RETRY_MAX_MS));
+        this.maxEntries = positiveInteger(options.maxEntries, DEFAULT_MAX_ENTRIES);
+        this.jitterRatio = boundedRatio(options.jitterRatio, DEFAULT_JITTER_RATIO);
+        this.random = options.random ?? Math.random;
         this.onPersistError = options.onError;
-        this.entries = readPersistedEntries(storage.get(this.storageKey));
+        this.entries = readPersistedEntries(storage.get(this.storageKey)).slice(0, this.maxEntries);
         // A process can die while an entry is syncing. It is safe to replay it;
         // the website uses sessionId for idempotency.
         let recovered = false;
@@ -42,6 +47,19 @@ class SyncOutbox {
     failedCount() {
         return this.entries.filter((entry) => entry.state === 'failed').length;
     }
+    rejectedCount() {
+        return this.failedCount();
+    }
+    getSessionStatus(sessionId) {
+        const entry = this.entries.find((candidate) => candidate.sessionId === sessionId);
+        if (!entry)
+            return 'local';
+        if (entry.state === 'synced')
+            return 'synced';
+        if (entry.state === 'failed')
+            return 'rejected';
+        return 'pending';
+    }
     due(now = this.now()) {
         return this.entries
             .filter((entry) => entry.state === 'pending' && (entry.nextRetryTime === null || entry.nextRetryTime <= now))
@@ -56,6 +74,12 @@ class SyncOutbox {
         const existing = existingIndex >= 0 ? this.entries[existingIndex] : undefined;
         if (existing?.state === 'synced' && !force)
             return cloneEntry(existing);
+        if (existingIndex < 0 && this.entries.length >= this.maxEntries) {
+            this.pruneSyncedEntries();
+            if (this.entries.length >= this.maxEntries) {
+                throw new Error('Sprintly sync queue is full. Sync or clear existing queued sessions first.');
+            }
+        }
         const next = {
             sessionId: payload.sessionId,
             payload: clonePayload(payload),
@@ -80,6 +104,16 @@ class SyncOutbox {
         entry.state = 'syncing';
         entry.attemptCount += 1;
         entry.lastAttemptTime = now;
+        entry.nextRetryTime = null;
+        this.persist();
+        return cloneEntry(entry);
+    }
+    /** Return a server-rejected batch to pending when a 413 is being split. */
+    releaseSyncing(sessionId) {
+        const entry = this.entries.find((candidate) => candidate.sessionId === sessionId);
+        if (!entry || entry.state !== 'syncing')
+            return entry ? cloneEntry(entry) : null;
+        entry.state = 'pending';
         entry.nextRetryTime = null;
         this.persist();
         return cloneEntry(entry);
@@ -139,7 +173,17 @@ class SyncOutbox {
     dispose() { }
     retryDelay(attemptCount) {
         const exponent = Math.max(0, Math.min(30, attemptCount - 1));
-        return Math.min(this.retryMaxMs, this.retryBaseMs * (2 ** exponent));
+        const exponential = Math.min(this.retryMaxMs, this.retryBaseMs * (2 ** exponent));
+        const sample = this.random();
+        const random = Number.isFinite(sample) ? Math.max(0, Math.min(1, sample)) : 0.5;
+        const jittered = exponential * (1 + ((random * 2) - 1) * this.jitterRatio);
+        return Math.max(1, Math.min(this.retryMaxMs, Math.round(jittered)));
+    }
+    pruneSyncedEntries() {
+        const before = this.entries.length;
+        this.entries = this.entries.filter((entry) => entry.state !== 'synced');
+        if (this.entries.length !== before)
+            this.persist();
     }
     persist(force = false) {
         const snapshot = {
@@ -203,13 +247,21 @@ function clonePayload(payload) {
     return JSON.parse(JSON.stringify(payload));
 }
 function sanitizeError(value) {
-    return value.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]').slice(0, 500);
+    return value
+        .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+        .replace(/(token|secret|password|code)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+        .slice(0, 500);
 }
 function positiveInteger(value, fallback) {
     return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 function nonNegativeInteger(value) {
     return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+function boundedRatio(value, fallback) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+        ? value
+        : fallback;
 }
 function nullableTimestamp(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;

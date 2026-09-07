@@ -15,6 +15,7 @@ const { DelegatingPairingAdapter } = require('../out/integration/pairing');
 const { SprintlyTokenStore } = require('../out/integration/secureTokenStore');
 const { SyncOutbox } = require('../out/integration/syncOutbox');
 const { SyncStateStore } = require('../out/integration/syncState');
+const { mapSessionRecord } = require('../out/tracking/sprintlyContract');
 Module._load = originalLoad;
 
 class TestMemento {
@@ -55,7 +56,9 @@ function setup(settings, upload, clock = () => 2_000) {
     store: async (key, value) => secrets.values.set(key, value),
     delete: async (key) => secrets.values.delete(key),
   };
-  const outbox = new SyncOutbox(memento, { now: clock, retryBaseMs: 100, retryMaxMs: 500 });
+  const outbox = new SyncOutbox(memento, {
+    now: clock, retryBaseMs: 100, retryMaxMs: 500, jitterRatio: 0,
+  });
   const stateStore = new SyncStateStore(memento);
   let uploadCalls = 0;
   const client = {
@@ -221,4 +224,70 @@ test('clearing local history also clears every queued wire payload', async () =>
   await setupValue.service.clearQueuedSessions();
   assert.equal(setupValue.outbox.list().length, 0);
   assert.equal(await setupValue.secrets.get('sprintly.extension.developmentToken'), 'dev-token');
+});
+
+test('413 responses split a batch into bounded sub-batches', async () => {
+  const setupValue = setup({}, (sessions) => {
+    if (sessions.length > 1) {
+      throw new SprintlyApiError('payload too large', { kind: 'http', status: 413 });
+    }
+    return { acceptedSessionIds: [sessions[0].sessionId], duplicateSessionIds: [], rejected: [] };
+  });
+  setupValue.outbox.enqueue(mapSessionRecord(record('first')).payload);
+  setupValue.outbox.enqueue(mapSessionRecord(record('second')).payload);
+  const result = await setupValue.service.syncPendingSessions(true);
+  assert.equal(result.state, 'synced');
+  assert.equal(result.syncedCount, 2);
+  assert.equal(setupValue.outbox.get('first').state, 'synced');
+  assert.equal(setupValue.outbox.get('second').state, 'synced');
+  assert.equal(setupValue.uploadCalls, 3);
+});
+
+test('large pending queues are sent in batches of at most 100 sessions', async () => {
+  const setupValue = setup({}, (sessions) => ({
+    acceptedSessionIds: sessions.map((entry) => entry.sessionId),
+    duplicateSessionIds: [],
+    rejected: [],
+  }));
+  for (let index = 0; index < 101; index += 1) {
+    setupValue.outbox.enqueue(mapSessionRecord(record(`batch-${index}`)).payload);
+  }
+  const result = await setupValue.service.syncPendingSessions(true);
+  assert.equal(result.state, 'synced');
+  assert.equal(result.syncedCount, 101);
+  assert.equal(setupValue.uploadCalls, 2);
+});
+
+test('401 disables the uploader, clears only in-memory auth, and preserves queued data', async () => {
+  const setupValue = setup({}, () => {
+    throw new SprintlyApiError('authorization rejected', { kind: 'unauthorized', status: 401 });
+  });
+  await setupValue.service.syncCompletedSession(record());
+  assert.equal(setupValue.service.getStatus().pairingRequired, true);
+  assert.equal(setupValue.stateStore.get().connectionStatus, 'disconnected');
+  assert.equal(await setupValue.secrets.get('sprintly.extension.developmentToken'), 'dev-token');
+  const retry = await setupValue.service.syncPendingSessions(true);
+  assert.equal(retry.state, 'failed');
+  assert.equal(setupValue.uploadCalls, 1);
+  assert.equal(setupValue.outbox.get('sync-session').state, 'pending');
+});
+
+test('website-disabled sync stops automatic uploads until an explicit manual retry', async () => {
+  let attempt = 0;
+  const setupValue = setup({}, () => {
+    attempt += 1;
+    if (attempt === 1) {
+      throw new SprintlyApiError('sync disabled', { kind: 'sync-disabled', status: 403 });
+    }
+    return { acceptedSessionIds: ['sync-session'], duplicateSessionIds: [], rejected: [] };
+  });
+  const first = await setupValue.service.syncCompletedSession(record());
+  assert.equal(first.state, 'failed');
+  assert.equal(setupValue.service.getStatus().syncDisabled, true);
+  const automatic = await setupValue.service.resume();
+  assert.equal(automatic.state, 'failed');
+  assert.equal(setupValue.uploadCalls, 1);
+  const manual = await setupValue.service.syncPendingSessions(true);
+  assert.equal(manual.state, 'synced');
+  assert.equal(setupValue.uploadCalls, 2);
 });

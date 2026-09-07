@@ -18,8 +18,12 @@ class SyncStateStore {
         this.listeners.add(listener);
         return { dispose: () => this.listeners.delete(listener) };
     }
-    markConnected() {
-        this.update({ connectionStatus: 'connected', lastSyncError: null });
+    markConnected(clearSyncDisabled = true) {
+        this.update({
+            connectionStatus: 'connected',
+            lastSyncError: null,
+            ...(clearSyncDisabled ? { syncDisabled: false, syncDisabledReason: null } : {}),
+        });
     }
     markDisconnected() {
         this.update({ connectionStatus: 'disconnected' });
@@ -27,11 +31,27 @@ class SyncStateStore {
     markRevoked(error = 'The Sprintly device has been revoked.') {
         this.update({ connectionStatus: 'revoked', lastSyncError: sanitizeError(error) });
     }
+    markSyncDisabled(error) {
+        const message = sanitizeError(error);
+        this.update({
+            connectionStatus: 'disconnected',
+            lastSyncError: message,
+            syncDisabled: true,
+            syncDisabledReason: message,
+        });
+    }
+    clearSyncDisabled() {
+        if (!this.state.syncDisabled && this.state.syncDisabledReason === null)
+            return;
+        this.update({ syncDisabled: false, syncDisabledReason: null });
+    }
     markSyncSucceeded(timestamp = Date.now()) {
         this.update({
             connectionStatus: 'connected',
             lastSuccessfulSync: timestamp,
             lastSyncError: null,
+            syncDisabled: false,
+            syncDisabledReason: null,
         });
     }
     markSyncFailed(error, status = 'disconnected') {
@@ -73,6 +93,10 @@ function parseState(value) {
         connectionStatus: status === 'connected' || status === 'revoked' ? status : 'disconnected',
         lastSuccessfulSync: nullableTimestamp(value.lastSuccessfulSync),
         lastSyncError: typeof value.lastSyncError === 'string' ? sanitizeError(value.lastSyncError) : null,
+        syncDisabled: value.syncDisabled === true,
+        syncDisabledReason: typeof value.syncDisabledReason === 'string'
+            ? sanitizeError(value.syncDisabledReason)
+            : null,
     };
 }
 function emptyState() {
@@ -81,13 +105,18 @@ function emptyState() {
         connectionStatus: 'disconnected',
         lastSuccessfulSync: null,
         lastSyncError: null,
+        syncDisabled: false,
+        syncDisabledReason: null,
     };
 }
 function nullableTimestamp(value) {
     return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 }
 function sanitizeError(value) {
-    return value.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]').slice(0, 500);
+    return value
+        .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+        .replace(/(token|secret|password|code)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+        .slice(0, 500);
 }
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

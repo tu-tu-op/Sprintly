@@ -37,3 +37,15 @@ test('revoked state is explicit and recoverable by reconnecting', () => {
   assert.equal(store.get().connectionStatus, 'connected');
   assert.equal(store.get().lastSyncError, null);
 });
+
+test('website-disabled state persists until a manual sync clears it', async () => {
+  const memento = new TestMemento();
+  const store = new SyncStateStore(memento);
+  store.markSyncDisabled('Website sync is disabled');
+  await store.flush();
+  const reopened = new SyncStateStore(memento);
+  assert.equal(reopened.get().syncDisabled, true);
+  assert.match(reopened.get().syncDisabledReason, /disabled/);
+  reopened.clearSyncDisabled();
+  assert.equal(reopened.get().syncDisabled, false);
+});

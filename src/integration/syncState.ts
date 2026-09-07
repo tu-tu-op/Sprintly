@@ -5,6 +5,8 @@ export interface PersistedSyncState {
   connectionStatus: SprintlyConnectionStatus;
   lastSuccessfulSync: number | null;
   lastSyncError: string | null;
+  syncDisabled: boolean;
+  syncDisabledReason: string | null;
 }
 
 export interface SyncStateStorage {
@@ -41,8 +43,12 @@ export class SyncStateStore {
     return { dispose: () => this.listeners.delete(listener) };
   }
 
-  markConnected(): void {
-    this.update({ connectionStatus: 'connected', lastSyncError: null });
+  markConnected(clearSyncDisabled = true): void {
+    this.update({
+      connectionStatus: 'connected',
+      lastSyncError: null,
+      ...(clearSyncDisabled ? { syncDisabled: false, syncDisabledReason: null } : {}),
+    });
   }
 
   markDisconnected(): void {
@@ -53,11 +59,28 @@ export class SyncStateStore {
     this.update({ connectionStatus: 'revoked', lastSyncError: sanitizeError(error) });
   }
 
+  markSyncDisabled(error: string): void {
+    const message = sanitizeError(error);
+    this.update({
+      connectionStatus: 'disconnected',
+      lastSyncError: message,
+      syncDisabled: true,
+      syncDisabledReason: message,
+    });
+  }
+
+  clearSyncDisabled(): void {
+    if (!this.state.syncDisabled && this.state.syncDisabledReason === null) return;
+    this.update({ syncDisabled: false, syncDisabledReason: null });
+  }
+
   markSyncSucceeded(timestamp = Date.now()): void {
     this.update({
       connectionStatus: 'connected',
       lastSuccessfulSync: timestamp,
       lastSyncError: null,
+      syncDisabled: false,
+      syncDisabledReason: null,
     });
   }
 
@@ -101,6 +124,10 @@ function parseState(value: unknown): PersistedSyncState {
     connectionStatus: status === 'connected' || status === 'revoked' ? status : 'disconnected',
     lastSuccessfulSync: nullableTimestamp(value.lastSuccessfulSync),
     lastSyncError: typeof value.lastSyncError === 'string' ? sanitizeError(value.lastSyncError) : null,
+    syncDisabled: value.syncDisabled === true,
+    syncDisabledReason: typeof value.syncDisabledReason === 'string'
+      ? sanitizeError(value.syncDisabledReason)
+      : null,
   };
 }
 
@@ -110,6 +137,8 @@ function emptyState(): PersistedSyncState {
     connectionStatus: 'disconnected',
     lastSuccessfulSync: null,
     lastSyncError: null,
+    syncDisabled: false,
+    syncDisabledReason: null,
   };
 }
 
@@ -118,7 +147,10 @@ function nullableTimestamp(value: unknown): number | null {
 }
 
 function sanitizeError(value: string): string {
-  return value.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]').slice(0, 500);
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/(token|secret|password|code)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+    .slice(0, 500);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

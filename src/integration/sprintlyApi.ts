@@ -1,6 +1,14 @@
 import * as http from 'http';
 import * as https from 'https';
-import { SprintlySessionContract, SPRINTLY_CONTRACT, SPRINTLY_SCHEMA_VERSION, validateSprintlySession } from '../tracking/sprintlyContract';
+import {
+  SprintlySessionContract,
+  SPRINTLY_CONTRACT,
+  SPRINTLY_SCHEMA_VERSION,
+  validateSprintlySession,
+} from '../tracking/sprintlyContract';
+
+export const SPRINTLY_MAX_REQUEST_BYTES = 1_000_000;
+export const SPRINTLY_MAX_SESSIONS_PER_REQUEST = 100;
 
 export interface HttpRequestOptions {
   method: 'GET' | 'POST';
@@ -46,6 +54,7 @@ export type SprintlyApiErrorKind =
   | 'network'
   | 'unauthorized'
   | 'revoked-device'
+  | 'sync-disabled'
   | 'validation'
   | 'contract'
   | 'http';
@@ -66,11 +75,14 @@ export class SprintlyApiError extends Error {
       rejected?: RejectedSession[];
     },
   ) {
-    super(message);
+    super(sanitizeSensitiveText(message));
     this.kind = options.kind;
     this.retryable = options.retryable ?? false;
     this.status = options.status;
-    this.rejected = options.rejected ?? [];
+    this.rejected = (options.rejected ?? []).map((entry) => ({
+      sessionId: entry.sessionId,
+      reason: sanitizeSensitiveText(entry.reason),
+    }));
   }
 }
 
@@ -112,6 +124,18 @@ export class SprintlyApiClient {
     if (!sessions.length) {
       return { acceptedSessionIds: [], duplicateSessionIds: [], rejected: [] };
     }
+    if (sessions.length > SPRINTLY_MAX_SESSIONS_PER_REQUEST) {
+      throw new SprintlyApiError(
+        `A Sprintly upload may contain at most ${SPRINTLY_MAX_SESSIONS_PER_REQUEST} sessions.`,
+        { kind: 'validation' },
+      );
+    }
+    const sessionIds = sessions.map((session) => session.sessionId);
+    if (new Set(sessionIds).size !== sessionIds.length) {
+      throw new SprintlyApiError('A Sprintly upload cannot contain duplicate session IDs.', {
+        kind: 'validation',
+      });
+    }
     const validationErrors = sessions.flatMap((session) => {
       const validation = validateSprintlySession(session);
       return validation.ok ? [] : validation.errors.map((error) => `${session.sessionId}: ${error}`);
@@ -126,16 +150,23 @@ export class SprintlyApiClient {
       );
     }
 
+    const serializedBody = serializeSprintlyUploadEnvelope(sessions);
+    if (Buffer.byteLength(serializedBody, 'utf8') > SPRINTLY_MAX_REQUEST_BYTES) {
+      throw new SprintlyApiError(
+        `The Sprintly upload batch exceeds the ${SPRINTLY_MAX_REQUEST_BYTES}-byte request limit.`,
+        { kind: 'http', status: 413 },
+      );
+    }
+
     const response = await this.send(
       'POST',
       '/api/extension/sessions',
-      JSON.stringify({
-        contract: SPRINTLY_CONTRACT,
-        schemaVersion: SPRINTLY_SCHEMA_VERSION,
-        sessions,
-      }),
+      serializedBody,
     );
     const body = parseJsonObject(response.body);
+    if (body.contract !== undefined || body.schemaVersion !== undefined) {
+      validateUploadResponseContract(body, response.status);
+    }
     if (response.status === 401) {
       const revoked = isRevokedDevice(body);
       throw new SprintlyApiError(
@@ -146,6 +177,12 @@ export class SprintlyApiClient {
         },
       );
     }
+    if ((response.status === 400 || response.status === 403) && isSyncDisabled(body)) {
+      throw new SprintlyApiError(
+        'Sprintly synchronization is disabled by the website account settings.',
+        { kind: 'sync-disabled', status: response.status },
+      );
+    }
     if (response.status === 400) {
       const rejected = parseRejected(body, sessions);
       throw new SprintlyApiError(
@@ -154,12 +191,14 @@ export class SprintlyApiClient {
       );
     }
     if (response.status === 409) {
-      return parseUploadResult(body, sessions, true);
+      validateUploadResponseContract(body, response.status);
+      return parseUploadResult(body, sessions);
     }
     if (response.status < 200 || response.status >= 300) {
       throw apiErrorFromResponse(response.status, body, 'Session upload failed');
     }
-    return parseUploadResult(body, sessions, false);
+    validateUploadResponseContract(body, response.status);
+    return parseUploadResult(body, sessions);
   }
 
   private async send(
@@ -232,6 +271,16 @@ export const nodeHttpRequest: HttpRequest = (options) => new Promise((resolve, r
   request.end();
 });
 
+export function serializeSprintlyUploadEnvelope(
+  sessions: readonly SprintlySessionContract[],
+): string {
+  return JSON.stringify({
+    contract: SPRINTLY_CONTRACT,
+    schemaVersion: SPRINTLY_SCHEMA_VERSION,
+    sessions,
+  });
+}
+
 function parseBaseUrl(value: string): URL {
   try {
     const url = new URL(value);
@@ -258,19 +307,22 @@ function parseJsonObject(body: string): Record<string, unknown> {
 function parseUploadResult(
   body: Record<string, unknown>,
   sessions: readonly SprintlySessionContract[],
-  conflict: boolean,
 ): SprintlyUploadResult {
-  const requestedIds = sessions.map((session) => session.sessionId);
   const acceptedSessionIds = parseIds(body.accepted ?? body.acceptedSessions);
   const duplicateSessionIds = parseIds(body.duplicates ?? body.duplicateSessions);
   const rejected = parseRejected(body, sessions);
-  if (conflict && !acceptedSessionIds.length && !duplicateSessionIds.length && !rejected.length) {
-    return { acceptedSessionIds: [], duplicateSessionIds: requestedIds, rejected: [] };
-  }
-  if (!acceptedSessionIds.length && !duplicateSessionIds.length && !rejected.length && body.ok === true) {
-    return { acceptedSessionIds: requestedIds, duplicateSessionIds: [], rejected: [] };
-  }
+  // Never infer success from a generic `ok` or conflict status. Queue records
+  // may be finalized only when the website names them as accepted or duplicate.
   return { acceptedSessionIds, duplicateSessionIds, rejected };
+}
+
+function validateUploadResponseContract(body: Record<string, unknown>, status: number): void {
+  if (body.contract !== SPRINTLY_CONTRACT || body.schemaVersion !== SPRINTLY_SCHEMA_VERSION) {
+    throw new SprintlyApiError(
+      `The website returned an incompatible upload response contract (HTTP ${status}).`,
+      { kind: 'contract', status },
+    );
+  }
 }
 
 function parseRejected(
@@ -333,6 +385,17 @@ function apiErrorFromResponse(
   });
 }
 
+function isSyncDisabled(body: Record<string, unknown>): boolean {
+  if (body.syncDisabled === true || body.syncEnabled === false) return true;
+  const code = typeof body.code === 'string' ? body.code.toUpperCase() : '';
+  const error = typeof body.error === 'string' ? body.error.toUpperCase() : '';
+  return code === 'SYNC_DISABLED'
+    || code === 'CONSENT_REQUIRED'
+    || code === 'LEADERBOARD_CONSENT_REQUIRED'
+    || error === 'SYNC_DISABLED'
+    || error === 'CONSENT_REQUIRED';
+}
+
 function isRevokedDevice(body: Record<string, unknown>): boolean {
   const code = typeof body.code === 'string' ? body.code.toUpperCase() : '';
   const error = typeof body.error === 'string' ? body.error.toUpperCase() : '';
@@ -346,4 +409,11 @@ function isRevokedDevice(body: Record<string, unknown>): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function sanitizeSensitiveText(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/(token|secret|password|code)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+    .slice(0, 500);
 }

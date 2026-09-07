@@ -1,17 +1,23 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.nodeHttpRequest = exports.SprintlyApiClient = exports.SprintlyApiError = void 0;
+exports.nodeHttpRequest = exports.SprintlyApiClient = exports.SprintlyApiError = exports.SPRINTLY_MAX_SESSIONS_PER_REQUEST = exports.SPRINTLY_MAX_REQUEST_BYTES = void 0;
+exports.serializeSprintlyUploadEnvelope = serializeSprintlyUploadEnvelope;
 const http = require("http");
 const https = require("https");
 const sprintlyContract_1 = require("../tracking/sprintlyContract");
+exports.SPRINTLY_MAX_REQUEST_BYTES = 1000000;
+exports.SPRINTLY_MAX_SESSIONS_PER_REQUEST = 100;
 class SprintlyApiError extends Error {
     constructor(message, options) {
-        super(message);
+        super(sanitizeSensitiveText(message));
         this.name = 'SprintlyApiError';
         this.kind = options.kind;
         this.retryable = options.retryable ?? false;
         this.status = options.status;
-        this.rejected = options.rejected ?? [];
+        this.rejected = (options.rejected ?? []).map((entry) => ({
+            sessionId: entry.sessionId,
+            reason: sanitizeSensitiveText(entry.reason),
+        }));
     }
 }
 exports.SprintlyApiError = SprintlyApiError;
@@ -43,6 +49,15 @@ class SprintlyApiClient {
         if (!sessions.length) {
             return { acceptedSessionIds: [], duplicateSessionIds: [], rejected: [] };
         }
+        if (sessions.length > exports.SPRINTLY_MAX_SESSIONS_PER_REQUEST) {
+            throw new SprintlyApiError(`A Sprintly upload may contain at most ${exports.SPRINTLY_MAX_SESSIONS_PER_REQUEST} sessions.`, { kind: 'validation' });
+        }
+        const sessionIds = sessions.map((session) => session.sessionId);
+        if (new Set(sessionIds).size !== sessionIds.length) {
+            throw new SprintlyApiError('A Sprintly upload cannot contain duplicate session IDs.', {
+                kind: 'validation',
+            });
+        }
         const validationErrors = sessions.flatMap((session) => {
             const validation = (0, sprintlyContract_1.validateSprintlySession)(session);
             return validation.ok ? [] : validation.errors.map((error) => `${session.sessionId}: ${error}`);
@@ -53,12 +68,15 @@ class SprintlyApiClient {
                     reason: validationErrors.filter((error) => error.startsWith(`${session.sessionId}:`)).join('; '),
                 })) });
         }
-        const response = await this.send('POST', '/api/extension/sessions', JSON.stringify({
-            contract: sprintlyContract_1.SPRINTLY_CONTRACT,
-            schemaVersion: sprintlyContract_1.SPRINTLY_SCHEMA_VERSION,
-            sessions,
-        }));
+        const serializedBody = serializeSprintlyUploadEnvelope(sessions);
+        if (Buffer.byteLength(serializedBody, 'utf8') > exports.SPRINTLY_MAX_REQUEST_BYTES) {
+            throw new SprintlyApiError(`The Sprintly upload batch exceeds the ${exports.SPRINTLY_MAX_REQUEST_BYTES}-byte request limit.`, { kind: 'http', status: 413 });
+        }
+        const response = await this.send('POST', '/api/extension/sessions', serializedBody);
         const body = parseJsonObject(response.body);
+        if (body.contract !== undefined || body.schemaVersion !== undefined) {
+            validateUploadResponseContract(body, response.status);
+        }
         if (response.status === 401) {
             const revoked = isRevokedDevice(body);
             throw new SprintlyApiError(revoked ? 'The Sprintly device has been revoked. Reconnect the extension.' : 'Sprintly authorization was rejected.', {
@@ -66,17 +84,22 @@ class SprintlyApiClient {
                 status: response.status,
             });
         }
+        if ((response.status === 400 || response.status === 403) && isSyncDisabled(body)) {
+            throw new SprintlyApiError('Sprintly synchronization is disabled by the website account settings.', { kind: 'sync-disabled', status: response.status });
+        }
         if (response.status === 400) {
             const rejected = parseRejected(body, sessions);
             throw new SprintlyApiError(`The website rejected ${rejected.length} session${rejected.length === 1 ? '' : 's'}.`, { kind: 'validation', status: response.status, rejected });
         }
         if (response.status === 409) {
-            return parseUploadResult(body, sessions, true);
+            validateUploadResponseContract(body, response.status);
+            return parseUploadResult(body, sessions);
         }
         if (response.status < 200 || response.status >= 300) {
             throw apiErrorFromResponse(response.status, body, 'Session upload failed');
         }
-        return parseUploadResult(body, sessions, false);
+        validateUploadResponseContract(body, response.status);
+        return parseUploadResult(body, sessions);
     }
     async send(method, path, body, includeAuth = method === 'POST') {
         const headers = { Accept: 'application/json' };
@@ -149,6 +172,13 @@ const nodeHttpRequest = (options) => new Promise((resolve, reject) => {
     request.end();
 });
 exports.nodeHttpRequest = nodeHttpRequest;
+function serializeSprintlyUploadEnvelope(sessions) {
+    return JSON.stringify({
+        contract: sprintlyContract_1.SPRINTLY_CONTRACT,
+        schemaVersion: sprintlyContract_1.SPRINTLY_SCHEMA_VERSION,
+        sessions,
+    });
+}
 function parseBaseUrl(value) {
     try {
         const url = new URL(value);
@@ -174,18 +204,18 @@ function parseJsonObject(body) {
         return {};
     }
 }
-function parseUploadResult(body, sessions, conflict) {
-    const requestedIds = sessions.map((session) => session.sessionId);
+function parseUploadResult(body, sessions) {
     const acceptedSessionIds = parseIds(body.accepted ?? body.acceptedSessions);
     const duplicateSessionIds = parseIds(body.duplicates ?? body.duplicateSessions);
     const rejected = parseRejected(body, sessions);
-    if (conflict && !acceptedSessionIds.length && !duplicateSessionIds.length && !rejected.length) {
-        return { acceptedSessionIds: [], duplicateSessionIds: requestedIds, rejected: [] };
-    }
-    if (!acceptedSessionIds.length && !duplicateSessionIds.length && !rejected.length && body.ok === true) {
-        return { acceptedSessionIds: requestedIds, duplicateSessionIds: [], rejected: [] };
-    }
+    // Never infer success from a generic `ok` or conflict status. Queue records
+    // may be finalized only when the website names them as accepted or duplicate.
     return { acceptedSessionIds, duplicateSessionIds, rejected };
+}
+function validateUploadResponseContract(body, status) {
+    if (body.contract !== sprintlyContract_1.SPRINTLY_CONTRACT || body.schemaVersion !== sprintlyContract_1.SPRINTLY_SCHEMA_VERSION) {
+        throw new SprintlyApiError(`The website returned an incompatible upload response contract (HTTP ${status}).`, { kind: 'contract', status });
+    }
 }
 function parseRejected(body, sessions) {
     const raw = body.rejected ?? body.errors;
@@ -241,6 +271,17 @@ function apiErrorFromResponse(status, body, prefix) {
         retryable,
     });
 }
+function isSyncDisabled(body) {
+    if (body.syncDisabled === true || body.syncEnabled === false)
+        return true;
+    const code = typeof body.code === 'string' ? body.code.toUpperCase() : '';
+    const error = typeof body.error === 'string' ? body.error.toUpperCase() : '';
+    return code === 'SYNC_DISABLED'
+        || code === 'CONSENT_REQUIRED'
+        || code === 'LEADERBOARD_CONSENT_REQUIRED'
+        || error === 'SYNC_DISABLED'
+        || error === 'CONSENT_REQUIRED';
+}
 function isRevokedDevice(body) {
     const code = typeof body.code === 'string' ? body.code.toUpperCase() : '';
     const error = typeof body.error === 'string' ? body.error.toUpperCase() : '';
@@ -253,5 +294,11 @@ function isRevokedDevice(body) {
 }
 function isRecord(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+function sanitizeSensitiveText(value) {
+    return value
+        .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+        .replace(/(token|secret|password|code)\s*[:=]\s*[^\s,;]+/gi, '$1: [redacted]')
+        .slice(0, 500);
 }
 //# sourceMappingURL=sprintlyApi.js.map

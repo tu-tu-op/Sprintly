@@ -5,6 +5,7 @@ const test = require('node:test');
 const {
   SprintlyApiClient,
   SprintlyApiError,
+  SPRINTLY_MAX_SESSIONS_PER_REQUEST,
 } = require('../out/integration/sprintlyApi');
 const { nodeHttpRequest } = require('../out/integration/sprintlyApi');
 
@@ -52,7 +53,10 @@ test('valid session upload sends the required JSON body and bearer token', async
   const client = new SprintlyApiClient({
     baseUrl: 'http://localhost:3000/',
     token: 'development-token',
-    request: fakeTransport([{ status: 202, headers: {}, body: JSON.stringify({ accepted: [{ sessionId: 'api-session' }] }) }], calls),
+    request: fakeTransport([{ status: 202, headers: {}, body: JSON.stringify({
+      ok: true, contract: 'devstrava.session.v1', schemaVersion: 1,
+      accepted: [{ sessionId: 'api-session' }],
+    }) }], calls),
   });
   const result = await client.uploadSessions([session()]);
   assert.deepEqual(result.acceptedSessionIds, ['api-session']);
@@ -69,11 +73,27 @@ test('duplicate responses are treated as idempotent success', async () => {
   const client = new SprintlyApiClient({
     baseUrl: 'http://localhost:3000',
     token: 'token',
-    request: fakeTransport([{ status: 409, headers: {}, body: JSON.stringify({ duplicates: ['api-session'] }) }], []),
+    request: fakeTransport([{ status: 409, headers: {}, body: JSON.stringify({
+      ok: true, contract: 'devstrava.session.v1', schemaVersion: 1,
+      duplicates: ['api-session'],
+    }) }], []),
   });
   const result = await client.uploadSessions([session()]);
   assert.deepEqual(result.duplicateSessionIds, ['api-session']);
   assert.deepEqual(result.rejected, []);
+});
+
+test('generic ok responses do not implicitly acknowledge unnamed sessions', async () => {
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([{ status: 202, headers: {}, body: JSON.stringify({
+      ok: true, contract: 'devstrava.session.v1', schemaVersion: 1,
+    }) }], []),
+  });
+  const result = await client.uploadSessions([session()]);
+  assert.deepEqual(result.acceptedSessionIds, []);
+  assert.deepEqual(result.duplicateSessionIds, []);
 });
 
 test('unauthorized and revoked-device responses are distinct safe errors', async () => {
@@ -126,6 +146,46 @@ test('validation error maps can identify rejected session reasons', async () => 
   });
 });
 
+test('unknown upload response contracts stop synchronization', async () => {
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([{ status: 202, headers: {}, body: JSON.stringify({
+      ok: true, contract: 'future.contract', schemaVersion: 2, accepted: ['api-session'],
+    }) }], []),
+  });
+  await assert.rejects(() => client.uploadSessions([session()]), (error) => {
+    assert.equal(error.kind, 'contract');
+    assert.equal(error.retryable, false);
+    return true;
+  });
+});
+
+test('sync-disabled responses are distinct from transient HTTP failures', async () => {
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([{ status: 403, headers: {}, body: JSON.stringify({ code: 'SYNC_DISABLED' }) }], []),
+  });
+  await assert.rejects(() => client.uploadSessions([session()]), (error) => {
+    assert.equal(error.kind, 'sync-disabled');
+    assert.equal(error.retryable, false);
+    return true;
+  });
+});
+
+test('upload client rejects batches above the website session limit before sending', async () => {
+  const calls = [];
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([], calls),
+  });
+  const sessions = Array.from({ length: SPRINTLY_MAX_SESSIONS_PER_REQUEST + 1 }, (_, index) => session(`api-${index}`));
+  await assert.rejects(() => client.uploadSessions(sessions), /at most/);
+  assert.equal(calls.length, 0);
+});
+
 test('network failures are marked retryable without leaking credentials', async () => {
   const client = new SprintlyApiClient({
     baseUrl: 'http://localhost:3000',
@@ -157,7 +217,10 @@ test('standard-library transport reaches a loopback HTTP server', async () => {
         response.end(JSON.stringify({ ok: true, contract: 'devstrava.session.v1', schemaVersion: 1 }));
       } else {
         response.statusCode = 202;
-        response.end(JSON.stringify({ accepted: ['api-session'] }));
+        response.end(JSON.stringify({
+          ok: true, contract: 'devstrava.session.v1', schemaVersion: 1,
+          accepted: ['api-session'],
+        }));
       }
     });
   });

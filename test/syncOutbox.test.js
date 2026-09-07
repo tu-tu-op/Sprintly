@@ -42,6 +42,7 @@ test('temporary failures use bounded exponential retry timing', async () => {
     now: () => now,
     retryBaseMs: 100,
     retryMaxMs: 500,
+    jitterRatio: 0,
   });
   outbox.enqueue(session());
   outbox.begin('queued-session', now);
@@ -82,4 +83,27 @@ test('only an explicit synced acknowledgement changes a queued record to synced'
   assert.equal(outbox.get('queued-session').state, 'synced');
   assert.equal(outbox.pendingCount(), 0);
   assert.equal(outbox.failedCount(), 0);
+});
+
+test('retry timing includes bounded jitter and exposes local/rejected statuses', () => {
+  const outbox = new SyncOutbox(new TestMemento(), {
+    retryBaseMs: 100,
+    retryMaxMs: 500,
+    jitterRatio: 0.2,
+    random: () => 1,
+  });
+  outbox.enqueue(session());
+  assert.equal(outbox.getSessionStatus('queued-session'), 'pending');
+  outbox.begin('queued-session', 1_000);
+  outbox.markFailed('queued-session', 'invalid payload', false, 1_000);
+  assert.equal(outbox.getSessionStatus('queued-session'), 'rejected');
+  assert.equal(outbox.getSessionStatus('missing-session'), 'local');
+});
+
+test('queue refuses additional unsynced records once bounded capacity is reached', () => {
+  const outbox = new SyncOutbox(new TestMemento(), { maxEntries: 2 });
+  outbox.enqueue(session('one'));
+  outbox.enqueue(session('two'));
+  assert.throws(() => outbox.enqueue(session('three')), /queue is full/);
+  assert.equal(outbox.list().length, 2);
 });
