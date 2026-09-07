@@ -80,6 +80,39 @@ test('accepts the website score range while keeping percentage dimensions bounde
   assert.equal(validateSprintlySession(invalid).ok, false);
 });
 
+test('requires explicit RFC 3339 timezones and consistent recovery aggregates', () => {
+  const payload = mapSessionRecord(record()).payload;
+  const timezoneLess = { ...payload, startedAt: '2026-08-15T11:00:00' };
+  assert.equal(validateSprintlySession(timezoneLess).ok, false);
+
+  const submittedWithoutTimezone = { ...payload, submittedAt: '2026-08-15T12:00:00' };
+  assert.equal(validateSprintlySession(submittedWithoutTimezone).ok, false);
+
+  const inconsistentRecovery = {
+    ...payload,
+    reliability: { ...payload.reliability, failures: 3, recoveredFailures: 1, recoveryRate: 100 },
+  };
+  assert.equal(validateSprintlySession(inconsistentRecovery).ok, false);
+});
+
+test('rejects aggregate strings, arrays, and counts outside canonical bounds', () => {
+  const payload = mapSessionRecord(record()).payload;
+  const tooManyTraits = {
+    ...payload,
+    archetype: { ...payload.archetype, traits: ['a', 'b', 'c', 'd'] },
+  };
+  assert.equal(validateSprintlySession(tooManyTraits).ok, false);
+
+  const oversizedCount = {
+    ...payload,
+    activity: { ...payload.activity, edits: 1_000_000_001 },
+  };
+  assert.equal(validateSprintlySession(oversizedCount).ok, false);
+
+  const oversizedId = { ...payload, sessionId: 'x'.repeat(201) };
+  assert.equal(validateSprintlySession(oversizedId).ok, false);
+});
+
 test('reports unsupported fields and never serializes them', () => {
   const payload = mapSessionRecord(record()).payload;
   const unsupported = { ...payload, sourceCode: 'should never cross the boundary' };

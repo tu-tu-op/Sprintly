@@ -4,12 +4,25 @@ import type { SessionHistoryRecord } from './localSessionStore';
 export const SPRINTLY_CONTRACT = 'devstrava.session.v1' as const;
 export const SPRINTLY_SCHEMA_VERSION = 1 as const;
 
+/** Canonical limits shared by serialization and validation boundaries. */
+export const SPRINTLY_CONTRACT_LIMITS = {
+  maxSessionIdLength: 200,
+  maxArchetypeLength: 100,
+  maxTraitLength: 100,
+  maxTraits: 3,
+  maxAggregateCount: 1_000_000_000,
+  maxActiveDurationSeconds: 172_800,
+  maxSessionsPerExport: 1_000,
+  elapsedToleranceSeconds: 300,
+} as const;
+
 export interface SprintlySessionContract {
   contract: typeof SPRINTLY_CONTRACT;
   schemaVersion: typeof SPRINTLY_SCHEMA_VERSION;
   sessionId: string;
   startedAt: string;
   endedAt: string;
+  submittedAt?: string;
   activeDurationSeconds: number;
   coding: {
     manualPercent: number;
@@ -100,6 +113,7 @@ const SESSION_FIELDS = new Set([
   'sessionId',
   'startedAt',
   'endedAt',
+  'submittedAt',
   'activeDurationSeconds',
   'coding',
   'activity',
@@ -389,6 +403,8 @@ export function validateSprintlyExport(value: unknown): ContractValidationResult
   if (!isIsoDate(value.exportedAt)) errors.push('export.exportedAt must be an ISO date');
   if (!Array.isArray(value.sessions)) {
     errors.push('export.sessions must be an array');
+  } else if (value.sessions.length > SPRINTLY_CONTRACT_LIMITS.maxSessionsPerExport) {
+    errors.push(`export.sessions must contain at most ${SPRINTLY_CONTRACT_LIMITS.maxSessionsPerExport} sessions`);
   } else {
     value.sessions.forEach((session, index) => {
       const result = validateSprintlySession(session);
@@ -404,9 +420,17 @@ export function validateSprintlySession(value: unknown): ContractValidationResul
   const errors = unsupportedFields(value, SESSION_FIELDS, 'session');
   if (value.contract !== SPRINTLY_CONTRACT) errors.push('contract must be devstrava.session.v1');
   if (value.schemaVersion !== SPRINTLY_SCHEMA_VERSION) errors.push('schemaVersion must be 1');
-  requireNonEmptyString(value.sessionId, 'sessionId', errors);
+  requireBoundedString(
+    value.sessionId,
+    'sessionId',
+    SPRINTLY_CONTRACT_LIMITS.maxSessionIdLength,
+    errors,
+  );
   if (!isIsoDate(value.startedAt)) errors.push('startedAt must be an ISO date');
   if (!isIsoDate(value.endedAt)) errors.push('endedAt must be an ISO date');
+  if (value.submittedAt !== undefined && !isIsoDate(value.submittedAt)) {
+    errors.push('submittedAt must be an ISO date');
+  }
   const startedAt = typeof value.startedAt === 'string' ? Date.parse(value.startedAt) : NaN;
   const endedAt = typeof value.endedAt === 'string' ? Date.parse(value.endedAt) : NaN;
   if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt <= startedAt) {
@@ -414,9 +438,11 @@ export function validateSprintlySession(value: unknown): ContractValidationResul
   }
   const activeDurationSeconds = requireNonNegativeInteger(value.activeDurationSeconds, 'activeDurationSeconds', errors);
   if (activeDurationSeconds < 1) errors.push('activeDurationSeconds must be at least 1');
-  if (activeDurationSeconds > 172_800) errors.push('activeDurationSeconds must not exceed 172800');
+  if (activeDurationSeconds > SPRINTLY_CONTRACT_LIMITS.maxActiveDurationSeconds) {
+    errors.push(`activeDurationSeconds must not exceed ${SPRINTLY_CONTRACT_LIMITS.maxActiveDurationSeconds}`);
+  }
   if (Number.isFinite(startedAt) && Number.isFinite(endedAt)
-    && activeDurationSeconds > ((endedAt - startedAt) / 1_000) + 300) {
+    && activeDurationSeconds > ((endedAt - startedAt) / 1_000) + SPRINTLY_CONTRACT_LIMITS.elapsedToleranceSeconds) {
     errors.push('activeDurationSeconds is greater than the elapsed session window');
   }
   validateCoding(value.coding, errors);
@@ -482,6 +508,17 @@ function validateReliability(value: unknown, errors: string[]): void {
     errors.push('reliability.recoveredFailures must not exceed failures');
   }
   if (numberValue(value.recoveryRate) > 100) errors.push('reliability.recoveryRate must be at most 100');
+  if (isIntegerInRange(value.failures)
+    && isIntegerInRange(value.recoveredFailures)
+    && isIntegerInRange(value.recoveryRate)
+    && value.recoveredFailures <= value.failures) {
+    const expectedRate = value.failures === 0
+      ? 100
+      : Math.round((value.recoveredFailures / value.failures) * 100);
+    if (value.recoveryRate !== expectedRate) {
+      errors.push('reliability.recoveryRate must match recoveredFailures / failures');
+    }
+  }
 }
 
 function validateScores(value: unknown, errors: string[]): void {
@@ -510,9 +547,39 @@ function validateArchetype(value: unknown, errors: string[]): void {
     return;
   }
   errors.push(...unsupportedFields(value, ARCHETYPE_FIELDS, 'archetype'));
-  requireNonEmptyString(value.primary, 'archetype.primary', errors);
-  if (!Array.isArray(value.traits) || value.traits.some((trait) => typeof trait !== 'string')) {
+  requireBoundedString(
+    value.primary,
+    'archetype.primary',
+    SPRINTLY_CONTRACT_LIMITS.maxArchetypeLength,
+    errors,
+  );
+  if (!Array.isArray(value.traits)) {
     errors.push('archetype.traits must be an array of strings');
+    return;
+  }
+  if (value.traits.length > SPRINTLY_CONTRACT_LIMITS.maxTraits) {
+    errors.push(`archetype.traits must contain at most ${SPRINTLY_CONTRACT_LIMITS.maxTraits} items`);
+  }
+  value.traits.forEach((trait, index) => {
+    if (typeof trait !== 'string'
+      || trait.length === 0
+      || trait.length > SPRINTLY_CONTRACT_LIMITS.maxTraitLength
+      || /[\u0000-\u001F\u007F]/.test(trait)) {
+      errors.push(`archetype.traits[${index}] must be a bounded string`);
+    }
+  });
+}
+
+function validateBoundedInteger(
+  value: unknown,
+  label: string,
+  maximum: number,
+  errors: string[],
+): void {
+  if (!Number.isFinite(value) || typeof value !== 'number' || value < 0 || !Number.isInteger(value)) {
+    errors.push(`${label} must be a non-negative integer`);
+  } else if (value > maximum) {
+    errors.push(`${label} must be at most ${maximum}`);
   }
 }
 
@@ -537,9 +604,12 @@ function validateNonNegativeFields(
   errors: string[],
 ): void {
   for (const field of fields) {
-    if (!Number.isFinite(value[field]) || (value[field] as number) < 0 || !Number.isInteger(value[field])) {
-      errors.push(`${label}.${field} must be a non-negative integer`);
-    }
+    validateBoundedInteger(
+      value[field],
+      `${label}.${field}`,
+      SPRINTLY_CONTRACT_LIMITS.maxAggregateCount,
+      errors,
+    );
   }
 }
 
@@ -599,8 +669,15 @@ function clampPercent(value: number): number {
   return Math.max(0, Math.min(100, Math.round(nonNegativeNumber(value))));
 }
 
-function requireNonEmptyString(value: unknown, label: string, errors: string[]): void {
-  if (typeof value !== 'string' || value.length === 0) errors.push(`${label} must be a non-empty string`);
+function requireBoundedString(value: unknown, label: string, maximum: number, errors: string[]): void {
+  if (typeof value !== 'string' || value.length === 0) {
+    errors.push(`${label} must be a non-empty string`);
+    return;
+  }
+  if (value.length > maximum) errors.push(`${label} must be at most ${maximum} characters`);
+  if (value.trim() !== value || /[\u0000-\u001F\u007F]/.test(value)) {
+    errors.push(`${label} must not contain surrounding whitespace or control characters`);
+  }
 }
 
 function requireNonNegativeInteger(value: unknown, label: string, errors: string[]): number {
@@ -616,7 +693,20 @@ function numberValue(value: unknown): number {
 }
 
 function isIsoDate(value: unknown): value is string {
-  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+  if (typeof value !== 'string') return false;
+  // Date.parse accepts timezone-less values, while the website contract
+  // requires an explicit timezone on every wire timestamp.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) {
+    return false;
+  }
+  return Number.isFinite(Date.parse(value));
+}
+
+function isIntegerInRange(value: unknown): value is number {
+  return typeof value === 'number'
+    && Number.isInteger(value)
+    && value >= 0
+    && value <= SPRINTLY_CONTRACT_LIMITS.maxAggregateCount;
 }
 
 function failure(message: string): ContractValidationFailure {
