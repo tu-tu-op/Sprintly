@@ -259,10 +259,6 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
             return;
         }
         const settings = (0, connectionSettings_1.getSprintlyConnectionSettings)();
-        if (settings.environment !== 'production') {
-            void vscode.window.showErrorMessage('Pairing codes are available only when sprintly.apiEnvironment is set to production.');
-            return;
-        }
         try {
             const code = await vscode.window.showInputBox({
                 title: 'Sprintly Pairing Code',
@@ -285,23 +281,15 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
             void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
             return;
         }
-        const settings = (0, connectionSettings_1.getSprintlyConnectionSettings)();
-        if (settings.environment === 'development') {
-            try {
-                await syncService.connectDevelopment();
-                void vscode.window.showInformationMessage(`Sprintly connected to ${(0, connectionSettings_1.environmentLabel)(settings.environment)} at ${settings.apiUrl}.`);
-            }
-            catch (error) {
-                void vscode.window.showErrorMessage(`Sprintly connection failed: ${errorMessage(error)}`);
-            }
-            return;
-        }
         const opened = await handoff.connectWebsite();
         if (!opened) {
             void vscode.window.showErrorMessage('Sprintly pairing page could not be opened.');
             return;
         }
-        await enterPairingCode();
+        const action = await vscode.window.showInformationMessage('Sprintly Settings is open. Generate a pairing code there, then use Open VS Code for automatic pairing.', 'Enter Code Manually');
+        if (action === 'Enter Code Manually') {
+            await enterPairingCode();
+        }
     };
     const testConnection = async () => {
         if (!syncService) {
@@ -444,7 +432,7 @@ function registerCommands(context, tracker, statusBar, sessionStore, agentLogWat
         syncDraft();
     }), sessionStore.onDidUpdate(() => {
         syncDraft();
-    }), vscode.commands.registerCommand('sprintly.startSession', start), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.clearHistory', clearHistory), vscode.commands.registerCommand('sprintly.eraseAllData', eraseAllData), vscode.commands.registerCommand('sprintly.exportData', exportData), vscode.commands.registerCommand('sprintly.importData', importData), vscode.commands.registerCommand('sprintly.setDevelopmentToken', setDevelopmentToken), vscode.commands.registerCommand('sprintly.connectExtension', connect), vscode.commands.registerCommand('sprintly.enterPairingCode', enterPairingCode), vscode.commands.registerCommand('sprintly.connect', connect), vscode.commands.registerCommand('sprintly.testConnection', testConnection), vscode.commands.registerCommand('sprintly.syncCurrentSession', syncCurrentSession), vscode.commands.registerCommand('sprintly.syncPendingSessions', syncPendingSessions), vscode.commands.registerCommand('sprintly.syncNow', syncPendingSessions), vscode.commands.registerCommand('sprintly.migrateLocalSessions', migrateLocalSessions), vscode.commands.registerCommand('sprintly.clearSyncQueue', clearSyncQueue), vscode.commands.registerCommand('sprintly.viewSyncStatus', viewSyncStatus), vscode.commands.registerCommand('sprintly.disconnect', disconnect), vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite), vscode.commands.registerCommand('sprintly.shareSession', shareSession), vscode.commands.registerCommand('sprintly.syncHistory', syncHistory), vscode.commands.registerCommand('sprintly.joinLeaderboard', joinLeaderboard), vscode.commands.registerCommand('sprintly.saveSession', exportData), vscode.commands.registerCommand(sessionQuickPick_1.SESSION_PANEL_COMMAND, () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore, syncService)), vscode.commands.registerCommand('sprintly.openPanel', () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore, syncService)));
+    }), vscode.commands.registerCommand('sprintly.startSession', start), vscode.commands.registerCommand('sprintly.stopSession', stop), vscode.commands.registerCommand('sprintly.pauseSession', pause), vscode.commands.registerCommand('sprintly.resumeSession', resume), vscode.commands.registerCommand('sprintly.resetSession', reset), vscode.commands.registerCommand('sprintly.clearHistory', clearHistory), vscode.commands.registerCommand('sprintly.eraseAllData', eraseAllData), vscode.commands.registerCommand('sprintly.exportData', exportData), vscode.commands.registerCommand('sprintly.importData', importData), vscode.commands.registerCommand('sprintly.setDevelopmentToken', setDevelopmentToken), vscode.commands.registerCommand('sprintly.connectExtension', connect), vscode.commands.registerCommand('sprintly.connectAutomatically', connect), vscode.commands.registerCommand('sprintly.connectManually', enterPairingCode), vscode.commands.registerCommand('sprintly.enterPairingCode', enterPairingCode), vscode.commands.registerCommand('sprintly.connect', connect), vscode.commands.registerCommand('sprintly.testConnection', testConnection), vscode.commands.registerCommand('sprintly.syncCurrentSession', syncCurrentSession), vscode.commands.registerCommand('sprintly.syncPendingSessions', syncPendingSessions), vscode.commands.registerCommand('sprintly.syncNow', syncPendingSessions), vscode.commands.registerCommand('sprintly.migrateLocalSessions', migrateLocalSessions), vscode.commands.registerCommand('sprintly.clearSyncQueue', clearSyncQueue), vscode.commands.registerCommand('sprintly.viewSyncStatus', viewSyncStatus), vscode.commands.registerCommand('sprintly.disconnect', disconnect), vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite), vscode.commands.registerCommand('sprintly.shareSession', shareSession), vscode.commands.registerCommand('sprintly.syncHistory', syncHistory), vscode.commands.registerCommand('sprintly.joinLeaderboard', joinLeaderboard), vscode.commands.registerCommand('sprintly.saveSession', exportData), vscode.commands.registerCommand(sessionQuickPick_1.SESSION_PANEL_COMMAND, () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore, syncService)), vscode.commands.registerCommand('sprintly.openPanel', () => (0, sessionQuickPick_1.showStatusPanel)(tracker, sessionStore, historyStore, syncService)));
     return { handleMasterToggle };
 }
 var sessionQuickPick_2 = require("./panels/sessionQuickPick");

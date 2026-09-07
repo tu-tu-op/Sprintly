@@ -14,6 +14,7 @@ class SprintlySyncService {
         this.syncInFlight = null;
         this.inMemoryToken = null;
         this.authBlocked = false;
+        this.hasCredential = false;
         this.readSettings = options.readSettings ?? connectionSettings_1.getSprintlyConnectionSettings;
         this.createClient = options.createClient
             ?? ((settings, token) => new sprintlyApi_1.SprintlyApiClient({ baseUrl: settings.apiUrl, token }));
@@ -25,6 +26,7 @@ class SprintlySyncService {
         this.createDeviceId = options.createDeviceId;
         this.now = options.now ?? Date.now;
         options.stateStore.onDidChange(() => this.notify());
+        void this.refreshCredentialState();
     }
     getStatus() {
         const settings = this.readSettings();
@@ -40,7 +42,10 @@ class SprintlySyncService {
             failedCount: this.options.outbox.failedCount(),
             lastSuccessfulSync: state.lastSuccessfulSync,
             lastSyncError: state.lastSyncError,
-            pairingRequired: this.authBlocked || state.authRequired || state.connectionStatus === 'revoked',
+            pairingRequired: this.authBlocked
+                || state.authRequired
+                || state.connectionStatus === 'revoked'
+                || !this.hasCredential,
             syncEnabled: settings.syncEnabled !== false,
             syncDisabled: state.syncDisabled,
             rejectedCount: this.options.outbox.rejectedCount(),
@@ -78,6 +83,7 @@ class SprintlySyncService {
         try {
             await this.createClient(settings, null).health();
             this.inMemoryToken = token;
+            this.hasCredential = true;
             this.authBlocked = false;
             this.options.stateStore.markConnected();
             await this.flushState();
@@ -90,9 +96,6 @@ class SprintlySyncService {
     }
     async connectWithPairingCode(code) {
         const settings = this.readSettings();
-        if (settings.environment !== 'production') {
-            throw new Error('Pairing is available only when sprintly.apiEnvironment is production.');
-        }
         const normalizedCode = code.trim();
         if (!normalizedCode)
             throw new Error('A pairing code is required.');
@@ -113,6 +116,7 @@ class SprintlySyncService {
             });
             await this.options.tokenStore.storeDeviceToken(response.token);
             this.inMemoryToken = response.token;
+            this.hasCredential = true;
             this.authBlocked = false;
             this.options.stateStore.markConnected();
             await this.flushState();
@@ -126,6 +130,7 @@ class SprintlySyncService {
     async disconnect() {
         await this.options.tokenStore.clear();
         this.inMemoryToken = null;
+        this.hasCredential = false;
         this.authBlocked = false;
         this.options.stateStore.markDisconnected();
         await this.flushState();
@@ -133,6 +138,7 @@ class SprintlySyncService {
     async setDevelopmentToken(token) {
         await this.options.tokenStore.storeDevelopmentToken(token);
         this.inMemoryToken = null;
+        this.hasCredential = true;
         this.authBlocked = false;
         this.options.stateStore.markDisconnected();
         await this.flushState();
@@ -140,6 +146,7 @@ class SprintlySyncService {
     async eraseLocalData() {
         await this.options.tokenStore.clear();
         this.inMemoryToken = null;
+        this.hasCredential = false;
         this.authBlocked = false;
         this.options.outbox.clear();
         this.options.stateStore.markDisconnected();
@@ -458,6 +465,7 @@ class SprintlySyncService {
         }
         else if (apiError?.kind === 'revoked-device') {
             this.inMemoryToken = null;
+            this.hasCredential = false;
             this.authBlocked = true;
             this.options.stateStore.markRevoked(message);
         }
@@ -466,6 +474,7 @@ class SprintlySyncService {
             // value is deliberately left untouched until the user explicitly
             // disconnects or completes a new pairing.
             this.inMemoryToken = null;
+            this.hasCredential = false;
             this.authBlocked = true;
             this.options.stateStore.markAuthorizationRequired(message);
         }
@@ -518,6 +527,16 @@ class SprintlySyncService {
     }
     async flushState() {
         await Promise.all([this.options.outbox.flush(), this.options.stateStore.flush()]);
+    }
+    async refreshCredentialState() {
+        try {
+            const settings = this.readSettings();
+            this.hasCredential = await this.options.tokenStore.has(settings.environment);
+            this.notify();
+        }
+        catch {
+            this.hasCredential = false;
+        }
     }
     notify() {
         for (const listener of this.listeners) {

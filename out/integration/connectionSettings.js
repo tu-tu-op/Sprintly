@@ -6,7 +6,10 @@ exports.environmentLabel = environmentLabel;
 const vscode = require("vscode");
 const privacySettings_1 = require("../tracking/privacySettings");
 exports.DEFAULT_SPRINTLY_API_URL = 'http://localhost:3000';
-exports.DEFAULT_SPRINTLY_WEBSITE_URL = 'https://sprintly.app/connect';
+// The website's authenticated connection controls live on the local app
+// settings route during development. Production installations should set
+// sprintly.websiteUrl to the deployed Sprintly settings URL.
+exports.DEFAULT_SPRINTLY_WEBSITE_URL = 'http://localhost:3000/app/settings';
 exports.SPRINTLY_API_BASE_URL_ENV = 'SPRINTLY_API_BASE_URL';
 function getSprintlyConnectionSettings() {
     const configuration = vscode.workspace?.getConfiguration

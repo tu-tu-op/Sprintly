@@ -304,12 +304,6 @@ export function registerCommands(
       return;
     }
     const settings = getSprintlyConnectionSettings();
-    if (settings.environment !== 'production') {
-      void vscode.window.showErrorMessage(
-        'Pairing codes are available only when sprintly.apiEnvironment is set to production.',
-      );
-      return;
-    }
     try {
       const code = await vscode.window.showInputBox({
         title: 'Sprintly Pairing Code',
@@ -333,24 +327,18 @@ export function registerCommands(
       void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
       return;
     }
-    const settings = getSprintlyConnectionSettings();
-    if (settings.environment === 'development') {
-      try {
-        await syncService.connectDevelopment();
-        void vscode.window.showInformationMessage(
-          `Sprintly connected to ${environmentLabel(settings.environment)} at ${settings.apiUrl}.`,
-        );
-      } catch (error) {
-        void vscode.window.showErrorMessage(`Sprintly connection failed: ${errorMessage(error)}`);
-      }
-      return;
-    }
     const opened = await handoff.connectWebsite();
     if (!opened) {
       void vscode.window.showErrorMessage('Sprintly pairing page could not be opened.');
       return;
     }
-    await enterPairingCode();
+    const action = await vscode.window.showInformationMessage(
+      'Sprintly Settings is open. Generate a pairing code there, then use Open VS Code for automatic pairing.',
+      'Enter Code Manually',
+    );
+    if (action === 'Enter Code Manually') {
+      await enterPairingCode();
+    }
   };
 
   const testConnection = async (): Promise<void> => {
@@ -545,6 +533,8 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.importData', importData),
     vscode.commands.registerCommand('sprintly.setDevelopmentToken', setDevelopmentToken),
     vscode.commands.registerCommand('sprintly.connectExtension', connect),
+    vscode.commands.registerCommand('sprintly.connectAutomatically', connect),
+    vscode.commands.registerCommand('sprintly.connectManually', enterPairingCode),
     vscode.commands.registerCommand('sprintly.enterPairingCode', enterPairingCode),
     vscode.commands.registerCommand('sprintly.connect', connect),
     vscode.commands.registerCommand('sprintly.testConnection', testConnection),

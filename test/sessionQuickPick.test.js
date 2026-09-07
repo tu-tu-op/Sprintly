@@ -185,4 +185,7 @@ test('Quick Panel includes report redirect and website sync actions', () => {
   assert.match(labels, /View Session Report/);
   assert.match(labels, /Sync Pending Sessions/);
   assert.match(labels, /Website disconnected/);
+  assert.match(labels, /Connect Automatically/);
+  assert.match(labels, /Connect Manually/);
+  assert.ok(labels.indexOf('Connect Automatically') < labels.indexOf('AGENT USAGE'));
 });

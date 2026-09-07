@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "engines": { "vscode": "^1.93.0" },
   "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": ["onStartupFinished", "onUri"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -19,6 +19,8 @@
       { "command": "sprintly.exportData",      "title": "Sprintly: Export DevStrava Data", "category": "Sprintly" },
       { "command": "sprintly.importData",      "title": "Sprintly: Import DevStrava Data", "category": "Sprintly" },
       { "command": "sprintly.connectExtension", "title": "Sprintly: Connect Extension", "category": "Sprintly" },
+      { "command": "sprintly.connectAutomatically", "title": "Sprintly: Connect Automatically", "category": "Sprintly" },
+      { "command": "sprintly.connectManually", "title": "Sprintly: Connect Manually", "category": "Sprintly" },
       { "command": "sprintly.enterPairingCode", "title": "Sprintly: Enter Pairing Code", "category": "Sprintly" },
       { "command": "sprintly.connect",         "title": "Sprintly: Connect (alias)", "category": "Sprintly" },
       { "command": "sprintly.setDevelopmentToken", "title": "Sprintly: Set Development Token", "category": "Sprintly" },
@@ -76,8 +78,8 @@
         },
         "sprintly.websiteUrl": {
           "type": "string",
-          "default": "https://sprintly.app/connect",
-          "description": "DevStrava website connection URL. The extension opens it only after an explicit handoff command and never puts session data in the URL."
+          "default": "http://localhost:3000/app/settings",
+          "description": "Sprintly website Settings URL used by automatic pairing. The extension never puts session data or tokens in the URL. Set this to the deployed website in production."
         },
         "sprintly.apiUrl": {
           "type": "string",

@@ -7,6 +7,8 @@ test('manifest exposes the complete website connection command set', () => {
   const commands = new Map(manifest.contributes.commands.map((command) => [command.command, command.title]));
   for (const command of [
     'sprintly.connectExtension',
+    'sprintly.connectAutomatically',
+    'sprintly.connectManually',
     'sprintly.enterPairingCode',
     'sprintly.connect',
     'sprintly.setDevelopmentToken',

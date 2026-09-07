@@ -29,6 +29,18 @@ Relevant settings are:
   controls. Prompt text, command text, terminal output, paths, and source code
   are never stored in a session payload.
 
+The Quick Panel exposes both connection paths near the top of the panel:
+
+- `Connect Automatically` opens the configured Sprintly Settings page. The
+  website's `Open VS Code` button returns a `vscode://sprintly/connect` link;
+  the extension exchanges that short-lived code automatically.
+- `Connect Manually` accepts the one-time code copied from Sprintly Settings.
+
+Automatic pairing uses only the code and website API origin in the deep link.
+It never puts a device token, session payload, or Supabase credential in the
+URL. The default local website page is `http://localhost:3000/app/settings`;
+set `sprintly.websiteUrl` and `sprintly.apiUrl` for a deployed installation.
+
 The development-token command is a local smoke-test seam only. Its value is
 entered as a password and stored only in VS Code `SecretStorage`; it is not a
 configuration property and is never included in source control, packages,

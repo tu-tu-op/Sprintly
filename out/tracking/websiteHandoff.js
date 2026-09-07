@@ -103,8 +103,8 @@ function readWebsiteUrl() {
     const configuration = vscode.workspace?.getConfiguration
         ? vscode.workspace.getConfiguration('sprintly')
         : undefined;
-    return configuration?.get('websiteUrl', 'https://sprintly.app/connect')
-        ?? 'https://sprintly.app/connect';
+    return configuration?.get('websiteUrl', 'http://localhost:3000/app/settings')
+        ?? 'http://localhost:3000/app/settings';
 }
 function safeWebsiteUri(value) {
     try {

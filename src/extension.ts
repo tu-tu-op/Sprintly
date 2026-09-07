@@ -13,6 +13,8 @@ import { SprintlySyncService } from './integration/sprintlySync';
 import { SprintlyTokenStore } from './integration/secureTokenStore';
 import { SyncOutbox } from './integration/syncOutbox';
 import { SyncStateStore } from './integration/syncState';
+import { parseSprintlyPairingIntent } from './integration/connectionUri';
+import { getSprintlyConnectionSettings } from './integration/connectionSettings';
 import {
   demoLeaderboardData,
   demoHistoryData,
@@ -75,6 +77,36 @@ export function activate(context: vscode.ExtensionContext): void {
     syncService,
   );
 
+  // The website's “Open VS Code” button uses vscode://sprintly/connect. This
+  // handler completes pairing automatically without putting a device token in
+  // the URL; the short-lived code is exchanged directly with the website API.
+  context.subscriptions.push(
+    vscode.window.registerUriHandler({
+      handleUri: (uri) => {
+        const intent = parseSprintlyPairingIntent(uri);
+        if (!intent) return;
+
+        const configuredApi = getSprintlyConnectionSettings().apiUrl;
+        if (intent.apiUrl && !sameApiOrigin(intent.apiUrl, configuredApi)) {
+          void vscode.window.showWarningMessage(
+            'The pairing link targets a different Sprintly API. Set sprintly.apiUrl to that website origin, then try again.',
+          );
+          return;
+        }
+
+        void syncService.connectWithPairingCode(intent.code)
+          .then(() => {
+            void vscode.window.showInformationMessage('Sprintly extension connected automatically.');
+          })
+          .catch((error: unknown) => {
+            void vscode.window.showErrorMessage(
+              `Sprintly automatic connection failed: ${error instanceof Error ? error.message : 'pairing could not be completed.'}`,
+            );
+          });
+      },
+    }),
+  );
+
   // Privacy boundary: the agent-log watcher is constructed dormant. It only
   // discovers, reads, watches, or persists cursor state after the user
   // explicitly starts a sprint (see commands.ts start()).
@@ -125,6 +157,14 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {}
+
+function sameApiOrigin(left: string, right: string): boolean {
+  try {
+    return new URL(left).origin === new URL(right).origin;
+  } catch {
+    return false;
+  }
+}
 
 interface DevScreenPick extends vscode.QuickPickItem {
   id: 'open' | 'session' | 'leaderboard' | 'history' | 'end';

@@ -17,6 +17,8 @@ const sprintlySync_1 = require("./integration/sprintlySync");
 const secureTokenStore_1 = require("./integration/secureTokenStore");
 const syncOutbox_1 = require("./integration/syncOutbox");
 const syncState_1 = require("./integration/syncState");
+const connectionUri_1 = require("./integration/connectionUri");
+const connectionSettings_1 = require("./integration/connectionSettings");
 const sprintlyPanels_1 = require("./panels/sprintlyPanels");
 function activate(context) {
     const tracker = new sessionTracker_1.SessionTracker();
@@ -47,6 +49,28 @@ function activate(context) {
         historyStore.recoverInterruptedSession(interruptedId, dailyStore.get().session.endedAt ?? Date.now());
     }
     const lifecycleControls = (0, commands_1.registerCommands)(context, tracker, statusBar, dailyStore, agentLogWatcher, historyStore, handoff, syncService);
+    // The website's “Open VS Code” button uses vscode://sprintly/connect. This
+    // handler completes pairing automatically without putting a device token in
+    // the URL; the short-lived code is exchanged directly with the website API.
+    context.subscriptions.push(vscode.window.registerUriHandler({
+        handleUri: (uri) => {
+            const intent = (0, connectionUri_1.parseSprintlyPairingIntent)(uri);
+            if (!intent)
+                return;
+            const configuredApi = (0, connectionSettings_1.getSprintlyConnectionSettings)().apiUrl;
+            if (intent.apiUrl && !sameApiOrigin(intent.apiUrl, configuredApi)) {
+                void vscode.window.showWarningMessage('The pairing link targets a different Sprintly API. Set sprintly.apiUrl to that website origin, then try again.');
+                return;
+            }
+            void syncService.connectWithPairingCode(intent.code)
+                .then(() => {
+                void vscode.window.showInformationMessage('Sprintly extension connected automatically.');
+            })
+                .catch((error) => {
+                void vscode.window.showErrorMessage(`Sprintly automatic connection failed: ${error instanceof Error ? error.message : 'pairing could not be completed.'}`);
+            });
+        },
+    }));
     // Privacy boundary: the agent-log watcher is constructed dormant. It only
     // discovers, reads, watches, or persists cursor state after the user
     // explicitly starts a sprint (see commands.ts start()).
@@ -91,6 +115,14 @@ function activate(context) {
     }, context).catch(() => undefined);
 }
 function deactivate() { }
+function sameApiOrigin(left, right) {
+    try {
+        return new URL(left).origin === new URL(right).origin;
+    }
+    catch {
+        return false;
+    }
+}
 async function pickDevScreen() {
     try {
         return await vscode.window.showQuickPick([
