@@ -6,11 +6,15 @@ const manifest = require('../package.json');
 test('manifest exposes the complete website connection command set', () => {
   const commands = new Map(manifest.contributes.commands.map((command) => [command.command, command.title]));
   for (const command of [
+    'sprintly.connectExtension',
+    'sprintly.enterPairingCode',
     'sprintly.connect',
     'sprintly.setDevelopmentToken',
     'sprintly.testConnection',
     'sprintly.syncCurrentSession',
     'sprintly.syncPendingSessions',
+    'sprintly.syncNow',
+    'sprintly.migrateLocalSessions',
     'sprintly.viewSyncStatus',
     'sprintly.disconnect',
     'sprintly.exportData',
@@ -26,4 +30,5 @@ test('manifest keeps local API and privacy-preserving defaults configurable', ()
   assert.deepEqual(properties['sprintly.syncPreference'].enum, ['never', 'selected', 'completed', 'leaderboard']);
   assert.equal(properties['sprintly.syncPreference'].default, 'never');
   assert.equal(properties['sprintly.leaderboardOptIn'].default, false);
+  assert.equal(properties['sprintly.developmentToken'], undefined);
 });

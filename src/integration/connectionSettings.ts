@@ -8,7 +8,6 @@ export interface SprintlyConnectionSettings {
   environment: SprintlyApiEnvironment;
   syncPreference: SyncPreference;
   leaderboardOptIn: boolean;
-  developmentToken: string;
   websiteUrl: string;
 }
 
@@ -27,7 +26,6 @@ export function getSprintlyConnectionSettings(): SprintlyConnectionSettings {
     environment: environment === 'production' ? 'production' : 'development',
     syncPreference: isSyncPreference(configuredPreference) ? configuredPreference : 'never',
     leaderboardOptIn: get<boolean>('leaderboardOptIn', false) === true,
-    developmentToken: get<string>('developmentToken', ''),
     websiteUrl: get<string>('websiteUrl', DEFAULT_SPRINTLY_WEBSITE_URL),
   };
 }

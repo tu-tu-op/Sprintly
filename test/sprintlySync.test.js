@@ -71,7 +71,7 @@ function setup(settings, upload, clock = () => 2_000) {
       apiUrl: 'http://localhost:3000', environment: 'development',
       syncPreference: settings.syncPreference ?? 'completed',
       leaderboardOptIn: settings.leaderboardOptIn ?? false,
-      developmentToken: '', websiteUrl: 'http://localhost:3000',
+      websiteUrl: 'http://localhost:3000',
     }),
     createClient: () => client,
     now: clock,
@@ -169,13 +169,13 @@ test('manual pending sync retries a previously permanent failure', async () => {
   assert.equal(setupValue.uploadCalls, 2);
 });
 
-test('revoked device clears credentials without deleting the local queue', async () => {
+test('revoked device disables the uploader without deleting the local queue or SecretStorage', async () => {
   const setupValue = setup({}, () => {
     throw new SprintlyApiError('device revoked', { kind: 'revoked-device', retryable: false });
   });
   await setupValue.service.syncCompletedSession(record());
   assert.equal(setupValue.stateStore.get().connectionStatus, 'revoked');
-  assert.equal(await setupValue.secrets.get('sprintly.extension.developmentToken'), undefined);
+  assert.equal(await setupValue.secrets.get('sprintly.extension.developmentToken'), 'dev-token');
   assert.equal(setupValue.outbox.get('sync-session').state, 'failed');
 });
 
@@ -194,9 +194,9 @@ test('production pairing stores a device token and uses it for the next upload',
     tokenStore: new SprintlyTokenStore(secrets), outbox, stateStore,
     readSettings: () => ({
       apiUrl: 'https://sprintly.example', environment: 'production', syncPreference: 'completed',
-      leaderboardOptIn: false, developmentToken: '', websiteUrl: 'https://sprintly.example/connect',
+      leaderboardOptIn: false, websiteUrl: 'https://sprintly.example/connect',
     }),
-    pairingAdapter: new DelegatingPairingAdapter(async ({ code }) => ({ ok: true, deviceToken: `device-${code}` })),
+    pairingAdapter: new DelegatingPairingAdapter(async ({ code }) => ({ ok: true, token: `device-${code}` })),
     createClient: (_settings, token) => {
       usedTokens.push(token);
       return {
@@ -211,7 +211,7 @@ test('production pairing stores a device token and uses it for the next upload',
   assert.equal(await secrets.get('sprintly.extension.deviceToken'), 'device-pair-code');
   const result = await service.syncCompletedSession(record());
   assert.equal(result.state, 'synced');
-  assert.deepEqual(usedTokens, ['device-pair-code', 'device-pair-code']);
+  assert.deepEqual(usedTokens, [null, 'device-pair-code']);
 });
 
 test('clearing local history also clears every queued wire payload', async () => {

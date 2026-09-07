@@ -298,36 +298,59 @@ export function registerCommands(
     }
   };
 
-  const connect = async (): Promise<void> => {
+  const enterPairingCode = async (): Promise<void> => {
     if (!syncService) {
       void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
       return;
     }
     const settings = getSprintlyConnectionSettings();
+    if (settings.environment !== 'production') {
+      void vscode.window.showErrorMessage(
+        'Pairing codes are available only when sprintly.apiEnvironment is set to production.',
+      );
+      return;
+    }
     try {
-      if (settings.environment === 'development') {
-        await syncService.connectDevelopment();
-      } else {
-        const opened = await handoff.connectWebsite();
-        if (!opened) {
-          void vscode.window.showErrorMessage('Sprintly pairing page could not be opened.');
-          return;
-        }
-        const code = await vscode.window.showInputBox({
-          title: 'Sprintly Pairing Code',
-          prompt: 'Sign in on the Sprintly website, then paste the short-lived pairing code here.',
-          ignoreFocusOut: true,
-          validateInput: (value) => value.trim() ? undefined : 'A pairing code is required.',
-        });
-        if (code === undefined) return;
-        await syncService.connectWithPairingCode(code);
-      }
+      const code = await vscode.window.showInputBox({
+        title: 'Sprintly Pairing Code',
+        prompt: 'Paste the short-lived code shown by Sprintly Settings. It is used once and never stored.',
+        ignoreFocusOut: true,
+        password: true,
+        validateInput: (value) => value.trim() ? undefined : 'A pairing code is required.',
+      });
+      if (code === undefined) return;
+      await syncService.connectWithPairingCode(code);
       void vscode.window.showInformationMessage(
         `Sprintly connected to ${environmentLabel(settings.environment)} at ${settings.apiUrl}.`,
       );
     } catch (error) {
       void vscode.window.showErrorMessage(`Sprintly connection failed: ${errorMessage(error)}`);
     }
+  };
+
+  const connect = async (): Promise<void> => {
+    if (!syncService) {
+      void vscode.window.showErrorMessage('Sprintly API sync is not available in this extension build.');
+      return;
+    }
+    const settings = getSprintlyConnectionSettings();
+    if (settings.environment === 'development') {
+      try {
+        await syncService.connectDevelopment();
+        void vscode.window.showInformationMessage(
+          `Sprintly connected to ${environmentLabel(settings.environment)} at ${settings.apiUrl}.`,
+        );
+      } catch (error) {
+        void vscode.window.showErrorMessage(`Sprintly connection failed: ${errorMessage(error)}`);
+      }
+      return;
+    }
+    const opened = await handoff.connectWebsite();
+    if (!opened) {
+      void vscode.window.showErrorMessage('Sprintly pairing page could not be opened.');
+      return;
+    }
+    await enterPairingCode();
   };
 
   const testConnection = async (): Promise<void> => {
@@ -480,10 +503,13 @@ export function registerCommands(
     vscode.commands.registerCommand('sprintly.exportData', exportData),
     vscode.commands.registerCommand('sprintly.importData', importData),
     vscode.commands.registerCommand('sprintly.setDevelopmentToken', setDevelopmentToken),
+    vscode.commands.registerCommand('sprintly.connectExtension', connect),
+    vscode.commands.registerCommand('sprintly.enterPairingCode', enterPairingCode),
     vscode.commands.registerCommand('sprintly.connect', connect),
     vscode.commands.registerCommand('sprintly.testConnection', testConnection),
     vscode.commands.registerCommand('sprintly.syncCurrentSession', syncCurrentSession),
     vscode.commands.registerCommand('sprintly.syncPendingSessions', syncPendingSessions),
+    vscode.commands.registerCommand('sprintly.syncNow', syncPendingSessions),
     vscode.commands.registerCommand('sprintly.viewSyncStatus', viewSyncStatus),
     vscode.commands.registerCommand('sprintly.disconnect', disconnect),
     vscode.commands.registerCommand('sprintly.connectWebsite', connectWebsite),

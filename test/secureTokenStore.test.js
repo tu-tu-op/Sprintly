@@ -3,6 +3,7 @@ const test = require('node:test');
 
 const {
   SPRINTLY_DEVELOPMENT_TOKEN_SECRET,
+  SPRINTLY_DEVICE_ID_SECRET,
   SPRINTLY_DEVICE_TOKEN_SECRET,
   SprintlyTokenStore,
 } = require('../out/integration/secureTokenStore');
@@ -29,13 +30,26 @@ test('secure token storage uses SecretStorage and never serializes token state',
   assert.equal(await store.get('production'), 'device-secret');
   assert.equal(backing.values.get(SPRINTLY_DEVICE_TOKEN_SECRET), 'device-secret');
   await store.clear();
-  assert.equal(await store.get('development', ''), null);
+  assert.equal(await store.get('development'), null);
   assert.equal(await store.get('production'), null);
 });
 
-test('development configuration is a read-only fallback and production requires a stored device token', async () => {
+test('development credentials require SecretStorage and production requires a stored device token', async () => {
   const store = new SprintlyTokenStore(secrets());
-  assert.equal(await store.get('development', 'configured-token'), 'configured-token');
-  assert.equal(await store.get('production', 'configured-token'), null);
+  assert.equal(await store.get('development'), null);
+  assert.equal(await store.get('production'), null);
   await assert.rejects(() => store.storeDevelopmentToken('  '), /required/);
+});
+
+test('installation device ID is generated once and survives token disconnects', async () => {
+  const backing = secrets();
+  const store = new SprintlyTokenStore(backing);
+  const first = await store.getOrCreateDeviceId(() => 'stable-test-id');
+  const second = await store.getOrCreateDeviceId(() => 'different-id');
+  assert.equal(first, 'vscode-stable-test-id');
+  assert.equal(second, first);
+  assert.equal(backing.values.get(SPRINTLY_DEVICE_ID_SECRET), first);
+  await store.storeDeviceToken('device-secret');
+  await store.clear();
+  assert.equal(await store.getOrCreateDeviceId(() => 'new-id'), first);
 });

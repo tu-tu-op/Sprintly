@@ -19,7 +19,6 @@ function getSprintlyConnectionSettings() {
         environment: environment === 'production' ? 'production' : 'development',
         syncPreference: (0, privacySettings_1.isSyncPreference)(configuredPreference) ? configuredPreference : 'never',
         leaderboardOptIn: get('leaderboardOptIn', false) === true,
-        developmentToken: get('developmentToken', ''),
         websiteUrl: get('websiteUrl', exports.DEFAULT_SPRINTLY_WEBSITE_URL),
     };
 }

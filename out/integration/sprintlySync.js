@@ -11,10 +11,17 @@ class SprintlySyncService {
         this.options = options;
         this.listeners = new Set();
         this.syncInFlight = null;
+        this.inMemoryToken = null;
+        this.authBlocked = false;
         this.readSettings = options.readSettings ?? connectionSettings_1.getSprintlyConnectionSettings;
         this.createClient = options.createClient
             ?? ((settings, token) => new sprintlyApi_1.SprintlyApiClient({ baseUrl: settings.apiUrl, token }));
-        this.pairingAdapter = options.pairingAdapter ?? new pairing_1.UnavailablePairingAdapter();
+        this.pairingAdapter = options.pairingAdapter;
+        this.createPairingAdapter = options.createPairingAdapter
+            ?? ((settings) => new pairing_1.HttpPairingAdapter({ baseUrl: settings.apiUrl }));
+        this.deviceName = options.deviceName ?? 'VS Code';
+        this.deviceType = options.deviceType ?? 'vscode';
+        this.createDeviceId = options.createDeviceId;
         this.now = options.now ?? Date.now;
         options.stateStore.onDidChange(() => this.notify());
     }
@@ -32,6 +39,7 @@ class SprintlySyncService {
             failedCount: this.options.outbox.failedCount(),
             lastSuccessfulSync: state.lastSuccessfulSync,
             lastSyncError: state.lastSyncError,
+            pairingRequired: this.authBlocked,
         };
     }
     onDidChange(listener) {
@@ -56,12 +64,14 @@ class SprintlySyncService {
         if (settings.environment !== 'development') {
             throw new Error('Development tokens can be used only when sprintly.apiEnvironment is development.');
         }
-        const token = await this.options.tokenStore.get('development', settings.developmentToken);
+        const token = await this.options.tokenStore.get('development');
         if (!token) {
-            throw new Error('No development token is configured. Use Sprintly: Set Development Token or sprintly.developmentToken.');
+            throw new Error('No local development token is configured. Use Sprintly: Set Development Token.');
         }
         try {
-            await this.createClient(settings, token).health();
+            await this.createClient(settings, null).health();
+            this.inMemoryToken = token;
+            this.authBlocked = false;
             this.options.stateStore.markConnected();
             await this.flushState();
         }
@@ -80,9 +90,23 @@ class SprintlySyncService {
         if (!normalizedCode)
             throw new Error('A pairing code is required.');
         try {
-            const response = await this.pairingAdapter.exchangeCode({ code: normalizedCode });
-            await this.options.tokenStore.storeDeviceToken(response.deviceToken);
-            await this.createClient(settings, response.deviceToken).health();
+            // Health is intentionally unauthenticated and must succeed before the
+            // one-time pairing code is consumed.
+            await this.createClient(settings, null).health();
+            const deviceId = await this.options.tokenStore.getOrCreateDeviceId(this.createDeviceId);
+            const deviceName = typeof this.deviceName === 'function'
+                ? await this.deviceName()
+                : this.deviceName;
+            const adapter = this.pairingAdapter ?? this.createPairingAdapter(settings);
+            const response = await adapter.exchangeCode({
+                code: normalizedCode,
+                deviceId,
+                deviceName: deviceName.trim() || 'VS Code',
+                deviceType: this.deviceType,
+            });
+            await this.options.tokenStore.storeDeviceToken(response.token);
+            this.inMemoryToken = response.token;
+            this.authBlocked = false;
             this.options.stateStore.markConnected();
             await this.flushState();
         }
@@ -94,16 +118,22 @@ class SprintlySyncService {
     }
     async disconnect() {
         await this.options.tokenStore.clear();
+        this.inMemoryToken = null;
+        this.authBlocked = false;
         this.options.stateStore.markDisconnected();
         await this.flushState();
     }
     async setDevelopmentToken(token) {
         await this.options.tokenStore.storeDevelopmentToken(token);
+        this.inMemoryToken = null;
+        this.authBlocked = false;
         this.options.stateStore.markDisconnected();
         await this.flushState();
     }
     async eraseLocalData() {
         await this.options.tokenStore.clear();
+        this.inMemoryToken = null;
+        this.authBlocked = false;
         this.options.outbox.clear();
         this.options.stateStore.markDisconnected();
         await this.flushState();
@@ -191,7 +221,13 @@ class SprintlySyncService {
             return emptyResult('queued');
         }
         const settings = this.readSettings();
-        const token = await this.options.tokenStore.get(settings.environment, settings.developmentToken);
+        if (this.authBlocked) {
+            const message = 'Sprintly authorization expired. Pair the extension again before syncing.';
+            this.options.stateStore.markSyncFailed(message);
+            await this.flushState();
+            return failedResult(message, entries.length);
+        }
+        const token = this.inMemoryToken ?? await this.options.tokenStore.get(settings.environment);
         if (!token && settings.environment === 'production') {
             const message = 'Sprintly is not connected. Run Sprintly: Connect before syncing.';
             this.options.stateStore.markSyncFailed(message);
@@ -199,7 +235,7 @@ class SprintlySyncService {
             return failedResult(message, entries.length);
         }
         if (!token && settings.environment === 'development') {
-            const message = 'No development bearer token is configured.';
+            const message = 'No local development bearer token is configured.';
             this.options.stateStore.markSyncFailed(message);
             await this.flushState();
             return failedResult(message, entries.length);
@@ -261,8 +297,17 @@ class SprintlySyncService {
             this.options.outbox.markFailed(entry.sessionId, rejection?.reason ?? message, apiError?.retryable ?? true, this.now());
         }
         if (apiError?.kind === 'revoked-device') {
-            await this.options.tokenStore.clear();
+            this.inMemoryToken = null;
+            this.authBlocked = true;
             this.options.stateStore.markRevoked(message);
+        }
+        else if (apiError?.kind === 'unauthorized') {
+            // A 401 disables this process' uploader. The persisted SecretStorage
+            // value is deliberately left untouched until the user explicitly
+            // disconnects or completes a new pairing.
+            this.inMemoryToken = null;
+            this.authBlocked = true;
+            this.options.stateStore.markSyncFailed(message);
         }
         else {
             this.options.stateStore.markSyncFailed(message);
