@@ -92,13 +92,13 @@ class SprintlyApiClient {
             throw new SprintlyApiError(`The website rejected ${rejected.length} session${rejected.length === 1 ? '' : 's'}.`, { kind: 'validation', status: response.status, rejected });
         }
         if (response.status === 409) {
-            validateUploadResponseContract(body, response.status);
+            validateUploadResponseContract(body, response.status, true);
             return parseUploadResult(body, sessions);
         }
         if (response.status < 200 || response.status >= 300) {
             throw apiErrorFromResponse(response.status, body, 'Session upload failed');
         }
-        validateUploadResponseContract(body, response.status);
+        validateUploadResponseContract(body, response.status, true);
         return parseUploadResult(body, sessions);
     }
     async send(method, path, body, includeAuth = method === 'POST') {
@@ -212,9 +212,12 @@ function parseUploadResult(body, sessions) {
     // may be finalized only when the website names them as accepted or duplicate.
     return { acceptedSessionIds, duplicateSessionIds, rejected };
 }
-function validateUploadResponseContract(body, status) {
+function validateUploadResponseContract(body, status, requireSuccess = false) {
     if (body.contract !== sprintlyContract_1.SPRINTLY_CONTRACT || body.schemaVersion !== sprintlyContract_1.SPRINTLY_SCHEMA_VERSION) {
         throw new SprintlyApiError(`The website returned an incompatible upload response contract (HTTP ${status}).`, { kind: 'contract', status });
+    }
+    if (requireSuccess && body.ok !== true) {
+        throw new SprintlyApiError(`The website returned an invalid upload response (HTTP ${status}).`, { kind: 'contract', status });
     }
 }
 function parseRejected(body, sessions) {

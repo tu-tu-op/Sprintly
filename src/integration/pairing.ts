@@ -86,7 +86,7 @@ export class HttpPairingAdapter implements SprintlyPairingAdapter {
         { status: response.status, retryable: response.status >= 500 || response.status === 429 },
       );
     }
-    if (body.ok !== true || typeof body.token !== 'string' || !body.token.trim()) {
+    if (body.ok !== true || typeof body.token !== 'string' || !body.token.trim() || body.token.length > 4096) {
       throw new SprintlyPairingError(
         'The Sprintly pairing service returned an invalid device token.',
         { status: response.status },
@@ -124,12 +124,23 @@ export class UnavailablePairingAdapter implements SprintlyPairingAdapter {
 }
 
 function validatePairingRequest(request: PairingExchangeRequest): void {
-  if (!request.code.trim()) throw new SprintlyPairingError('A pairing code is required.');
+  if (!request || typeof request !== 'object') {
+    throw new SprintlyPairingError('A pairing request is required.');
+  }
+  if (typeof request.code !== 'string' || !request.code.trim()) {
+    throw new SprintlyPairingError('A pairing code is required.');
+  }
   if (request.code.length > 256) throw new SprintlyPairingError('The pairing code is too long.');
-  if (request.deviceId.length < 8 || request.deviceId.length > 200) {
+  if (typeof request.deviceId !== 'string'
+    || request.deviceId.length < 8
+    || request.deviceId.length > 200
+    || /[\u0000-\u001F\u007F]/.test(request.deviceId)) {
     throw new SprintlyPairingError('The extension device ID is invalid.');
   }
-  if (!request.deviceName.trim() || request.deviceName.length > 100) {
+  if (typeof request.deviceName !== 'string'
+    || !request.deviceName.trim()
+    || request.deviceName.length > 100
+    || /[\u0000-\u001F\u007F]/.test(request.deviceName)) {
     throw new SprintlyPairingError('The extension device name is invalid.');
   }
   if (!['vscode', 'desktop', 'other'].includes(request.deviceType)) {

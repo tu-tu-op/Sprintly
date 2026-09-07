@@ -40,7 +40,7 @@ class SprintlySyncService {
             failedCount: this.options.outbox.failedCount(),
             lastSuccessfulSync: state.lastSuccessfulSync,
             lastSyncError: state.lastSyncError,
-            pairingRequired: this.authBlocked,
+            pairingRequired: this.authBlocked || state.authRequired || state.connectionStatus === 'revoked',
             syncEnabled: settings.syncEnabled !== false,
             syncDisabled: state.syncDisabled,
             rejectedCount: this.options.outbox.rejectedCount(),
@@ -54,7 +54,10 @@ class SprintlySyncService {
         const settings = this.readSettings();
         try {
             await this.createClient(settings, null).health();
-            this.options.stateStore.markConnected(!this.options.stateStore.get().syncDisabled);
+            const state = this.options.stateStore.get();
+            if (!this.authBlocked && !state.authRequired && state.connectionStatus !== 'revoked') {
+                this.options.stateStore.markConnected(!state.syncDisabled);
+            }
             await this.flushState();
         }
         catch (error) {
@@ -316,7 +319,7 @@ class SprintlySyncService {
                 ?? 'Website synchronization is disabled in Sprintly Settings.';
             return failedResult(message, entries.length);
         }
-        if (this.authBlocked) {
+        if (this.authBlocked || state.authRequired || state.connectionStatus === 'revoked') {
             const message = 'Sprintly authorization expired. Pair the extension again before syncing.';
             this.options.stateStore.markSyncFailed(message);
             await this.flushState();
@@ -464,7 +467,7 @@ class SprintlySyncService {
             // disconnects or completes a new pairing.
             this.inMemoryToken = null;
             this.authBlocked = true;
-            this.options.stateStore.markSyncFailed(message);
+            this.options.stateStore.markAuthorizationRequired(message);
         }
         else {
             this.options.stateStore.markSyncFailed(message);

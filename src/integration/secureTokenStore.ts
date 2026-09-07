@@ -11,9 +11,9 @@ export interface SecureSecretStorage {
 }
 
 /**
- * SecretStorage is the only persistent owner of extension credentials. The
- * development configuration fallback is read-only and is never copied into
- * any persisted state or export.
+ * SecretStorage is the only persistent owner of extension credentials.
+ * Development credentials are an explicit local smoke-test value and are
+ * never copied into any other persisted state or export.
  */
 export class SprintlyTokenStore {
   constructor(private readonly secrets: SecureSecretStorage) {}

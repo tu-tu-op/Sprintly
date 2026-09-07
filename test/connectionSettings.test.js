@@ -44,3 +44,16 @@ test('connection settings support remote extension hosts and production selectio
   assert.equal(settings.leaderboardOptIn, true);
   assert.equal(environmentLabel(settings.environment), 'Production');
 });
+
+test('SPRINTLY_API_BASE_URL overrides the configured API origin for local development', () => {
+  const previous = process.env.SPRINTLY_API_BASE_URL;
+  try {
+    process.env.SPRINTLY_API_BASE_URL = 'http://127.0.0.1:3100';
+    configuration = { apiUrl: 'http://configured.example' };
+    assert.equal(getSprintlyConnectionSettings().apiUrl, 'http://127.0.0.1:3100');
+  } finally {
+    if (previous === undefined) delete process.env.SPRINTLY_API_BASE_URL;
+    else process.env.SPRINTLY_API_BASE_URL = previous;
+    configuration = {};
+  }
+});

@@ -15,6 +15,7 @@ export interface SprintlyConnectionSettings {
 
 export const DEFAULT_SPRINTLY_API_URL = 'http://localhost:3000';
 export const DEFAULT_SPRINTLY_WEBSITE_URL = 'https://sprintly.app/connect';
+export const SPRINTLY_API_BASE_URL_ENV = 'SPRINTLY_API_BASE_URL';
 
 export function getSprintlyConnectionSettings(): SprintlyConnectionSettings {
   const configuration = vscode.workspace?.getConfiguration
@@ -23,8 +24,10 @@ export function getSprintlyConnectionSettings(): SprintlyConnectionSettings {
   const get = <T>(key: string, fallback: T): T => configuration?.get<T>(key, fallback) ?? fallback;
   const environment = get<unknown>('apiEnvironment', 'development');
   const configuredPreference = get<unknown>('syncPreference', 'never');
+  const environmentApiUrl = process.env[SPRINTLY_API_BASE_URL_ENV]?.trim();
+  const configuredApiUrl = get<string>('apiUrl', DEFAULT_SPRINTLY_API_URL).trim();
   return {
-    apiUrl: get<string>('apiUrl', DEFAULT_SPRINTLY_API_URL).trim() || DEFAULT_SPRINTLY_API_URL,
+    apiUrl: environmentApiUrl || configuredApiUrl || DEFAULT_SPRINTLY_API_URL,
     environment: environment === 'production' ? 'production' : 'development',
     syncEnabled: get<boolean>('syncEnabled', false) === true,
     syncPreference: isSyncPreference(configuredPreference) ? configuredPreference : 'never',

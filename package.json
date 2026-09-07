@@ -82,7 +82,7 @@
         "sprintly.apiUrl": {
           "type": "string",
           "default": "http://localhost:3000",
-          "description": "Sprintly HTTP API base URL. Configure the reachable host for WSL, Remote SSH, or Dev Containers."
+          "description": "Sprintly HTTP API base URL. SPRINTLY_API_BASE_URL may override it for local development, WSL, Remote SSH, or Dev Containers."
         },
         "sprintly.apiEnvironment": {
           "type": "string",

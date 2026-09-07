@@ -23,32 +23,35 @@ Explorer, bottom-panel, or editor-tab replacement was introduced.
 - Added explicit export/import commands with strict schema validation and
   malformed/future-version rejection.
 - Added explicit Connect Website, Share Session, Sync History, and Join
-  Leaderboard commands. The handoff is a user-selected JSON file plus opening
-  the configured website URL; no payload is placed in a URL and no upload is
-  automatic.
+  Leaderboard commands. The file handoff is user-selected, no payload is
+  placed in a URL, and no history migration is automatic.
+- Added authenticated HTTP health, one-time device pairing, SecretStorage
+  token handling, durable aggregate-only upload, duplicate idempotency,
+  revocation handling, server-consent blocking, bounded batching/backoff, and
+  explicit local-history migration.
 - Added privacy controls for recording, startup prompt, local history,
-  retention, telemetry categories, AI display, and cloud-sync consent.
+  retention, extension sync, coding/AI/terminal/failure telemetry, AI display,
+  and cloud-sync consent. The Quick Panel shows pending/rejected counts and
+  connection state.
 - Added the optional `LocalSessionPacketSigner` Ed25519 abstraction using
   VS Code SecretStorage. It is not part of default handoff payloads.
 
-## Partially implemented
+## Integration boundary
 
-- The website handoff is a secure export/import fallback. It does not yet have
-  a production authenticated browser bridge or server API because the current
-  repository has no connected DevStrava backend.
-- The companion website remains a static/demo surface; it is not treated as an
-  automatic cloud database or as authority for local history.
-- VS Code shell integration is required for command and failure details. Where
-  command text or exit/output information is unavailable, the extension records
-  `other`/unavailable rather than inferring a category.
+The companion website remains the owner of API routes, authentication,
+Supabase persistence, profiles, public snapshots, social cards, retention,
+verification, and server-backed leaderboards. The current website directory is
+a static/demo surface without the extension route handlers, so this repository
+does not add a second database or pretend that local handoff is server sync.
+The extension is ready for the website's documented
+`/api/extension/health`, `/api/extension/pairing/complete`, and
+`/api/extension/sessions` routes.
 
-## Deferred
-
-- Authenticated short-lived pairing/session exchange.
-- Website-side persistence, profiles, public snapshots, social cards, and
-  server-backed leaderboards.
-- Provider APIs that could attribute arbitrary document edits to a specific AI
-  source. Unattributed bulk edits remain explicitly unattributed.
+VS Code shell integration is required for command and failure details. Where
+command text or exit/output information is unavailable, the extension records
+`other`/unavailable rather than inferring a category. Provider APIs that could
+attribute arbitrary document edits to a specific AI source are intentionally
+not used; unattributed bulk edits remain explicitly unattributed.
 
 ## Contract and verification
 
@@ -57,6 +60,6 @@ privacy boundary, handoff protocol, import rules, and score version.
 
 The root suite covers lifecycle boundaries, persistence/reopen behavior,
 retention, import/export, validation, workspace isolation, aggregation,
-scoring, archetypes, terminal categories, failure/recovery, privacy, handoff
-payloads, and optional signing. `npm test` currently passes all tests after
-compilation.
+scoring, archetypes, terminal categories, failure/recovery, privacy, pairing,
+HTTP contract behavior, queue retries, migration, handoff payloads, and
+optional signing. `npm test` passes all tests after compilation.

@@ -22,20 +22,29 @@ class SyncStateStore {
         this.update({
             connectionStatus: 'connected',
             lastSyncError: null,
+            authRequired: false,
             ...(clearSyncDisabled ? { syncDisabled: false, syncDisabledReason: null } : {}),
         });
     }
     markDisconnected() {
-        this.update({ connectionStatus: 'disconnected' });
+        this.update({ connectionStatus: 'disconnected', authRequired: false });
     }
     markRevoked(error = 'The Sprintly device has been revoked.') {
-        this.update({ connectionStatus: 'revoked', lastSyncError: sanitizeError(error) });
+        this.update({ connectionStatus: 'revoked', lastSyncError: sanitizeError(error), authRequired: true });
+    }
+    markAuthorizationRequired(error) {
+        this.update({
+            connectionStatus: 'disconnected',
+            lastSyncError: sanitizeError(error),
+            authRequired: true,
+        });
     }
     markSyncDisabled(error) {
         const message = sanitizeError(error);
         this.update({
             connectionStatus: 'disconnected',
             lastSyncError: message,
+            authRequired: false,
             syncDisabled: true,
             syncDisabledReason: message,
         });
@@ -50,6 +59,7 @@ class SyncStateStore {
             connectionStatus: 'connected',
             lastSuccessfulSync: timestamp,
             lastSyncError: null,
+            authRequired: false,
             syncDisabled: false,
             syncDisabledReason: null,
         });
@@ -93,6 +103,7 @@ function parseState(value) {
         connectionStatus: status === 'connected' || status === 'revoked' ? status : 'disconnected',
         lastSuccessfulSync: nullableTimestamp(value.lastSuccessfulSync),
         lastSyncError: typeof value.lastSyncError === 'string' ? sanitizeError(value.lastSyncError) : null,
+        authRequired: value.authRequired === true,
         syncDisabled: value.syncDisabled === true,
         syncDisabledReason: typeof value.syncDisabledReason === 'string'
             ? sanitizeError(value.syncDisabledReason)
@@ -105,6 +116,7 @@ function emptyState() {
         connectionStatus: 'disconnected',
         lastSuccessfulSync: null,
         lastSyncError: null,
+        authRequired: false,
         syncDisabled: false,
         syncDisabledReason: null,
     };

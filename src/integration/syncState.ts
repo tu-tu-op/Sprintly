@@ -5,6 +5,7 @@ export interface PersistedSyncState {
   connectionStatus: SprintlyConnectionStatus;
   lastSuccessfulSync: number | null;
   lastSyncError: string | null;
+  authRequired: boolean;
   syncDisabled: boolean;
   syncDisabledReason: string | null;
 }
@@ -47,16 +48,25 @@ export class SyncStateStore {
     this.update({
       connectionStatus: 'connected',
       lastSyncError: null,
+      authRequired: false,
       ...(clearSyncDisabled ? { syncDisabled: false, syncDisabledReason: null } : {}),
     });
   }
 
   markDisconnected(): void {
-    this.update({ connectionStatus: 'disconnected' });
+    this.update({ connectionStatus: 'disconnected', authRequired: false });
   }
 
   markRevoked(error = 'The Sprintly device has been revoked.'): void {
-    this.update({ connectionStatus: 'revoked', lastSyncError: sanitizeError(error) });
+    this.update({ connectionStatus: 'revoked', lastSyncError: sanitizeError(error), authRequired: true });
+  }
+
+  markAuthorizationRequired(error: string): void {
+    this.update({
+      connectionStatus: 'disconnected',
+      lastSyncError: sanitizeError(error),
+      authRequired: true,
+    });
   }
 
   markSyncDisabled(error: string): void {
@@ -64,6 +74,7 @@ export class SyncStateStore {
     this.update({
       connectionStatus: 'disconnected',
       lastSyncError: message,
+      authRequired: false,
       syncDisabled: true,
       syncDisabledReason: message,
     });
@@ -79,6 +90,7 @@ export class SyncStateStore {
       connectionStatus: 'connected',
       lastSuccessfulSync: timestamp,
       lastSyncError: null,
+      authRequired: false,
       syncDisabled: false,
       syncDisabledReason: null,
     });
@@ -124,6 +136,7 @@ function parseState(value: unknown): PersistedSyncState {
     connectionStatus: status === 'connected' || status === 'revoked' ? status : 'disconnected',
     lastSuccessfulSync: nullableTimestamp(value.lastSuccessfulSync),
     lastSyncError: typeof value.lastSyncError === 'string' ? sanitizeError(value.lastSyncError) : null,
+    authRequired: value.authRequired === true,
     syncDisabled: value.syncDisabled === true,
     syncDisabledReason: typeof value.syncDisabledReason === 'string'
       ? sanitizeError(value.syncDisabledReason)
@@ -137,6 +150,7 @@ function emptyState(): PersistedSyncState {
     connectionStatus: 'disconnected',
     lastSuccessfulSync: null,
     lastSyncError: null,
+    authRequired: false,
     syncDisabled: false,
     syncDisabledReason: null,
   };

@@ -107,3 +107,29 @@ test('queue refuses additional unsynced records once bounded capacity is reached
   assert.throws(() => outbox.enqueue(session('three')), /queue is full/);
   assert.equal(outbox.list().length, 2);
 });
+
+test('queue recovery preserves unsynced records when an older queue exceeds the cap', () => {
+  const memento = new TestMemento({
+    'sprintly.syncOutbox.v1': {
+      schemaVersion: 'sprintly.sync-outbox.v1',
+      entries: [
+        {
+          sessionId: 'already-synced', payload: session('already-synced'), state: 'synced',
+          attemptCount: 1, lastAttemptTime: 1, nextRetryTime: null, lastError: null, compatibilityWarnings: [],
+        },
+        {
+          sessionId: 'pending-one', payload: session('pending-one'), state: 'pending',
+          attemptCount: 0, lastAttemptTime: null, nextRetryTime: null, lastError: null, compatibilityWarnings: [],
+        },
+        {
+          sessionId: 'pending-two', payload: session('pending-two'), state: 'failed',
+          attemptCount: 1, lastAttemptTime: 1, nextRetryTime: null, lastError: 'invalid', compatibilityWarnings: [],
+        },
+      ],
+    },
+  });
+  const outbox = new SyncOutbox(memento, { maxEntries: 2 });
+  assert.deepEqual(outbox.list().map((entry) => entry.sessionId), ['pending-one', 'pending-two']);
+  assert.equal(outbox.getSessionStatus('pending-two'), 'rejected');
+  assert.equal(outbox.get('already-synced'), null);
+});

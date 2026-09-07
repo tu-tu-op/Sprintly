@@ -96,6 +96,21 @@ test('generic ok responses do not implicitly acknowledge unnamed sessions', asyn
   assert.deepEqual(result.duplicateSessionIds, []);
 });
 
+test('upload responses must explicitly report a successful contract', async () => {
+  const client = new SprintlyApiClient({
+    baseUrl: 'http://localhost:3000',
+    token: 'token',
+    request: fakeTransport([{ status: 202, headers: {}, body: JSON.stringify({
+      ok: false, contract: 'devstrava.session.v1', schemaVersion: 1,
+      accepted: ['api-session'],
+    }) }], []),
+  });
+  await assert.rejects(() => client.uploadSessions([session()]), (error) => {
+    assert.equal(error.kind, 'contract');
+    return true;
+  });
+});
+
 test('unauthorized and revoked-device responses are distinct safe errors', async () => {
   const unauthorized = new SprintlyApiClient({
     baseUrl: 'http://localhost:3000',

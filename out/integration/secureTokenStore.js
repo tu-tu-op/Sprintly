@@ -6,9 +6,9 @@ exports.SPRINTLY_DEVICE_TOKEN_SECRET = 'sprintly.extension.deviceToken';
 exports.SPRINTLY_DEVELOPMENT_TOKEN_SECRET = 'sprintly.extension.developmentToken';
 exports.SPRINTLY_DEVICE_ID_SECRET = 'sprintly.extension.deviceId';
 /**
- * SecretStorage is the only persistent owner of extension credentials. The
- * development configuration fallback is read-only and is never copied into
- * any persisted state or export.
+ * SecretStorage is the only persistent owner of extension credentials.
+ * Development credentials are an explicit local smoke-test value and are
+ * never copied into any other persisted state or export.
  */
 class SprintlyTokenStore {
     constructor(secrets) {

@@ -38,6 +38,18 @@ test('revoked state is explicit and recoverable by reconnecting', () => {
   assert.equal(store.get().lastSyncError, null);
 });
 
+test('authorization-required state survives restart until an explicit reconnect', async () => {
+  const memento = new TestMemento();
+  const store = new SyncStateStore(memento);
+  store.markAuthorizationRequired('The token was rejected');
+  await store.flush();
+  const reopened = new SyncStateStore(memento);
+  assert.equal(reopened.get().authRequired, true);
+  assert.equal(reopened.get().connectionStatus, 'disconnected');
+  reopened.markConnected();
+  assert.equal(reopened.get().authRequired, false);
+});
+
 test('website-disabled state persists until a manual sync clears it', async () => {
   const memento = new TestMemento();
   const store = new SyncStateStore(memento);

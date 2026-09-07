@@ -21,7 +21,17 @@ class SyncOutbox {
         this.jitterRatio = boundedRatio(options.jitterRatio, DEFAULT_JITTER_RATIO);
         this.random = options.random ?? Math.random;
         this.onPersistError = options.onError;
-        this.entries = readPersistedEntries(storage.get(this.storageKey)).slice(0, this.maxEntries);
+        const persistedEntries = readPersistedEntries(storage.get(this.storageKey));
+        // Never discard an unsynced record just because an older queue was larger
+        // than today's cap. Keep all pending/failed records and trim only records
+        // the server has already acknowledged; new records remain bounded until
+        // the backlog is synchronized or explicitly cleared.
+        const unsynced = persistedEntries.filter((entry) => entry.state !== 'synced');
+        const synced = persistedEntries.filter((entry) => entry.state === 'synced');
+        this.entries = [
+            ...unsynced,
+            ...synced.slice(0, Math.max(0, this.maxEntries - unsynced.length)),
+        ];
         // A process can die while an entry is syncing. It is safe to replay it;
         // the website uses sessionId for idempotency.
         let recovered = false;
