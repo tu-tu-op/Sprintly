@@ -4,6 +4,8 @@ exports.SESSION_PANEL_COMMAND = void 0;
 exports.showStatusPanel = showStatusPanel;
 exports.buildSessionPanelSummary = buildSessionPanelSummary;
 exports.buildPanelItems = buildPanelItems;
+exports.buildWebsiteSyncItems = buildWebsiteSyncItems;
+exports.makeProgressBar = makeProgressBar;
 const vscode = require("vscode");
 const pricing_1 = require("../tracking/pricing");
 const developerMetrics_1 = require("../tracking/developerMetrics");
@@ -12,6 +14,7 @@ exports.SESSION_PANEL_COMMAND = 'sprintly.showStatusPanel';
 async function showStatusPanel(tracker, sessionStore, historyStore, syncService) {
     let trackerStats = tracker.get();
     let sessionState = sessionStore.get();
+    let activeView = 'main';
     const quickPick = vscode.window.createQuickPick();
     // Canonical hydration: after a reload the volatile tracker is blank while a
     // finalized record exists. The panel then renders that record instead of
@@ -24,18 +27,16 @@ async function showStatusPanel(tracker, sessionStore, historyStore, syncService)
         return (currentId ? historyStore.get(currentId) : null) ?? historyStore.list()[0] ?? null;
     };
     quickPick.ignoreFocusOut = false;
-    quickPick.matchOnDescription = false;
-    quickPick.matchOnDetail = false;
-    quickPick.buttons = [
-        { iconPath: new vscode.ThemeIcon('refresh'), tooltip: 'Refresh' },
-        { iconPath: new vscode.ThemeIcon('globe'), tooltip: 'View session report' },
-        { iconPath: new vscode.ThemeIcon('settings-gear'), tooltip: 'Settings' },
-    ];
+    quickPick.matchOnDescription = true;
+    quickPick.matchOnDetail = true;
+    quickPick.keepScrollPosition = true;
     const render = () => {
-        const summary = buildSessionPanelSummary(trackerStats, sessionState, latestRecord());
-        quickPick.title = `$(pulse) Sprintly · ${summary.scope}`;
-        quickPick.placeholder = panelPlaceholder(summary.status);
-        quickPick.items = buildPanelItems(tracker, trackerStats, sessionState, summary, historyStore, latestRecord(), syncService?.getStatus());
+        const record = latestRecord();
+        const summary = buildSessionPanelSummary(trackerStats, sessionState, record);
+        quickPick.title = panelTitle(activeView);
+        quickPick.placeholder = panelPlaceholder(activeView, summary.status);
+        quickPick.buttons = panelButtons(activeView);
+        quickPick.items = buildPanelViewItems(activeView, tracker, trackerStats, sessionState, summary, historyStore, record, syncService?.getStatus());
     };
     const trackerSubscription = tracker.onDidUpdate.event((next) => {
         trackerStats = next;
@@ -47,6 +48,12 @@ async function showStatusPanel(tracker, sessionStore, historyStore, syncService)
     });
     const syncSubscription = syncService?.onDidChange(render) ?? { dispose: () => undefined };
     quickPick.onDidTriggerButton((button) => {
+        if (button === vscode.QuickInputButtons.Back) {
+            activeView = 'main';
+            quickPick.value = '';
+            render();
+            return;
+        }
         const icon = button.iconPath instanceof vscode.ThemeIcon ? button.iconPath.id : '';
         if (icon === 'refresh') {
             trackerStats = tracker.get();
@@ -69,12 +76,14 @@ async function showStatusPanel(tracker, sessionStore, historyStore, syncService)
         if (!selected) {
             return;
         }
-        quickPick.hide();
-        if (selected.metric) {
-            void showMetricDetail(selected.metric, sessionStore.get(), historyStore, latestRecord());
+        if (selected.view) {
+            activeView = selected.view;
+            quickPick.value = '';
+            render();
             return;
         }
         if (selected.action) {
+            quickPick.hide();
             runPanelAction(selected.action);
         }
     });
@@ -116,90 +125,102 @@ function buildSessionPanelSummary(trackerStats, state, record) {
         promptUsage: privacy.aiTrackingVisible ? describeAgentPrompts(state, record) : 'Hidden by privacy setting',
         tokenUsage: privacy.aiTrackingVisible ? describeTokenUsage(state, record) : 'Hidden by privacy setting',
         buildFailures: describeFailures(state, record),
+        focusScore: metrics.focusScore,
+        contextSwitches: metrics.contextSwitches,
+        shippingActivity: metrics.shippingActivity,
+        testingDiscipline: metrics.testingDiscipline,
+        aiBalance: metrics.aiBalance,
+        recoveryRate: metrics.recoveryRate,
     };
 }
-function buildPanelItems(tracker, trackerStats, state, summary, historyStore, record, syncStatus) {
+function buildPanelViewItems(view, tracker, trackerStats, state, summary, historyStore, record, syncStatus) {
+    if (view === 'session')
+        return buildSessionItems(trackerStats, state, summary);
+    if (view === 'activity')
+        return buildActivityItems(trackerStats, state, record);
+    if (view === 'coding')
+        return buildCodingItems(state, record);
+    if (view === 'agents')
+        return buildAgentItems(state, record);
+    if (view === 'reliability')
+        return buildReliabilityItems(state, summary, record);
+    if (view === 'history')
+        return buildHistoryItems(historyStore);
+    if (view === 'sync')
+        return syncStatus
+            ? buildWebsiteSyncItems(syncStatus, record)
+            : [item('cloud-offline', 'Website sync unavailable', 'Open Settings to review the connection'), actionItem('settings-gear', 'Open Settings', undefined, 'settings')];
+    return buildPanelItems(tracker, trackerStats, state, summary, historyStore, record, syncStatus);
+}
+function buildPanelItems(_tracker, trackerStats, state, summary, historyStore, record, syncStatus) {
+    const activity = getActivitySnapshot(trackerStats, record);
+    const coding = getCodingTotals(state, record);
+    const failures = record?.buildFailures ?? state.buildFailures;
     const items = [
-        separator('SESSION'),
-        item(statusIcon(summary.status), summary.status, summary.duration, state.session.id ? 'Recording state and elapsed session time' : 'Start a sprint when you are ready.'),
-        actionItem('globe', 'View Session Report', 'Open the detailed session report in your browser', 'viewWebsite'),
+        separator('Session'),
+        routeItem(statusIcon(summary.status), sessionRowLabel(summary), `${summary.status} · ${summary.duration}`, state.session.id
+            ? `${makeProgressBar(summary.focusScore)}  Focus ${safePercent(summary.focusScore)}/100 · ${summary.archetype}`
+            : 'Private, workspace-local tracking until you choose to sync', 'session'),
+        separator('Insights'),
+        routeItem('edit', 'Activity', describeActivityOverview(activity, state.session.id !== null), undefined, 'activity'),
+        routeItem('code', 'Coding mix', describeCodingOverview(coding), undefined, 'coding'),
+        routeItem('copilot', 'AI tools', describeAgentOverview(state, summary, record), undefined, 'agents'),
+        routeItem('shield', 'Reliability', describeReliabilityOverview(failures, state.session.id !== null), undefined, 'reliability'),
     ];
-    if (state.session.id) {
-        items.push(item('code', 'Coding style', summary.codingSplit, `${summary.archetype} · ${summary.metricSummary}`));
-    }
-    // Keep the website bridge near the top of the Quick Panel. Connection
-    // actions used to be appended after all metrics, which made them easy to
-    // miss and, in the default local-only state, looked like they were absent.
-    if (syncStatus) {
-        items.push(...buildWebsiteSyncItems(syncStatus, record));
-    }
-    // Activity rows render from the live tracker during a session and from the
-    // finalized record afterwards, instead of disappearing after a reload.
-    if (trackerStats.isRecording && trackerStats.startedAt) {
-        items.push(separator('ACTIVITY'), item('edit', 'Edits', String(trackerStats.fileEdits), `${trackerStats.linesChanged} lines changed`), item('files', 'Files touched', String(trackerStats.activeFiles.size), describeTerminalActivity(trackerStats)));
-    }
-    else if (record) {
-        items.push(separator('ACTIVITY'), item('edit', 'Edits', String(record.edits), `${record.linesChanged} lines changed`), item('files', 'Files touched', String(record.filesTouched), describeRecordTerminalActivity(record)));
-    }
-    items.push(separator('AGENT USAGE'), metricItem('copilot', 'Prompts', summary.promptUsage, 'prompts'), metricItem('symbol-numeric', 'Tokens', summary.tokenUsage, 'tokens'), separator('RELIABILITY'), metricItem('error', 'Failed executions', summary.buildFailures, 'failures'), metricItem('code', 'Coding split details', summary.codingSplit, 'coding'), item('pulse', 'Developer signals', summary.metricSummary, 'Explainable estimates from this session'), separator('CONTROLS'), ...buildControlItems(trackerStats, state));
     if (historyStore) {
         const history = historyStore.getAggregates('all');
-        const controlCount = buildControlItems(trackerStats, state).length;
-        items.splice(items.length - controlCount, 0, separator('LOCAL HISTORY'), metricItem('history', 'Session history', `${history.sessions} completed · ${formatCompactDuration(history.codingTimeMs)} coding`, 'history'));
+        items.push(separator('Workspace'), routeItem('history', 'History', history.sessions
+            ? `${plural(history.sessions, 'sprint')} · ${history.currentStreak} day streak · ${history.devScore} score`
+            : 'No completed sprints yet', undefined, 'history'));
     }
+    if (syncStatus) {
+        if (!historyStore)
+            items.push(separator('Workspace'));
+        items.push(routeItem('cloud', 'Website & sync', describeConnectionOverview(syncStatus), undefined, 'sync'));
+    }
+    items.push(separator('Actions'), ...buildControlItems(trackerStats, state), actionItem('globe', 'Open Sprintly report', 'View the detailed report in your browser', 'viewWebsite'), actionItem('settings-gear', 'Open Settings', 'Tracking, privacy, and sync preferences', 'settings'));
     return items;
 }
 function buildWebsiteSyncItems(syncStatus, record) {
     const rejectedCount = syncStatus.rejectedCount ?? syncStatus.failedCount;
-    const connectionDescription = syncStatus.connectionStatus === 'connected'
-        ? `${syncStatus.pendingCount} pending · ${rejectedCount} rejected`
-        : `${syncStatus.pendingCount} pending · ${rejectedCount} rejected · reconnect required`;
-    const connectionDetail = [
-        syncStatus.environment,
-        syncStatus.syncPreference,
-        syncStatus.localOnly ? 'local-only' : null,
-        syncStatus.syncEnabled === false ? 'extension sync disabled' : null,
-        syncStatus.syncDisabled ? 'website sync disabled' : null,
-    ].filter((part) => part !== null).join(' · ');
     const needsPairing = syncStatus.connectionStatus !== 'connected' || syncStatus.pairingRequired;
     const authenticated = syncStatus.connectionStatus === 'connected' && !syncStatus.pairingRequired;
-    return [
-        separator('WEBSITE CONNECTION'),
-        item(authenticated ? 'cloud' : 'cloud-offline', authenticated
-            ? 'Website connected'
-            : syncStatus.connectionStatus === 'connected' ? 'Website reachable · pairing required' : 'Website disconnected', connectionDescription, connectionDetail),
+    const items = [
+        separator('Connection'),
+        item(authenticated ? 'cloud' : 'cloud-offline', authenticated ? 'Sprintly website connected' : needsPairing ? 'Pairing required' : 'Website disconnected', describeConnectionState(syncStatus), `${syncStatus.environment} · ${syncStatus.apiUrl}`),
+        item('database', 'Upload mode', uploadModeLabel(syncStatus), syncStatus.localOnly
+            ? 'Sessions stay in this workspace unless you explicitly choose a sync action.'
+            : 'Only validated aggregate session data is eligible for upload.'),
+        item('sync', 'Sync queue', `${plural(syncStatus.pendingCount, 'pending item')} · ${plural(rejectedCount, 'rejected item')}`),
         syncStatus.lastSuccessfulSync
             ? item('check', 'Last successful sync', new Date(syncStatus.lastSuccessfulSync).toLocaleString())
             : item('clock', 'Last successful sync', 'Never'),
         ...(syncStatus.lastSyncError
             ? [item('warning', 'Last sync error', syncStatus.lastSyncError)]
             : []),
-        ...(needsPairing
-            ? [
-                actionItem('globe', 'Connect Automatically', 'Open Sprintly Settings and complete browser handoff', 'connectAutomatic'),
-                actionItem('key', 'Connect Manually', 'Enter the one-time pairing code from Sprintly Settings', 'connectManual'),
-            ]
-            : []),
-        ...(record
-            ? [actionItem('cloud-upload', 'Sync Selected Session', 'Upload this completed session now', 'syncCurrent')]
-            : []),
-        actionItem('cloud-upload', 'Sync Pending Sessions', 'Retry queued and failed sessions', 'syncPending'),
-        actionItem('archive', 'Migrate Local Sessions', 'Explicitly upload completed local history', 'migrateLocalSessions'),
-        ...(syncStatus.pendingCount > 0 || rejectedCount > 0
-            ? [actionItem('trash', 'Clear Local Sync Queue', 'Remove pending and rejected upload records', 'clearSyncQueue')]
-            : []),
-        actionItem('plug', 'Test Connection', `Check ${syncStatus.apiUrl}`, 'testConnection'),
-        actionItem('info', 'View Sync Status', 'Show connection and queue details', 'viewSyncStatus'),
-        ...(authenticated
-            ? [actionItem('sign-out', 'Disconnect Extension', 'Revoke local token and stop uploads', 'disconnect')]
-            : []),
     ];
+    if (needsPairing) {
+        items.push(separator('Connect'), actionItem('globe', 'Connect Automatically', 'Open Sprintly Settings and complete browser handoff', 'connectAutomatic'), actionItem('key', 'Connect Manually', 'Enter the one-time pairing code from Sprintly Settings', 'connectManual'));
+    }
+    items.push(separator('Sync'));
+    if (record) {
+        items.push(actionItem('cloud-upload', 'Sync Selected Session', 'Upload this completed session now', 'syncCurrent'));
+    }
+    items.push(actionItem('cloud-upload', 'Sync Pending Sessions', 'Retry queued and failed sessions', 'syncPending'), actionItem('archive', 'Migrate Local Sessions', 'Explicitly upload completed local history', 'migrateLocalSessions'));
+    if (syncStatus.pendingCount > 0 || rejectedCount > 0) {
+        items.push(actionItem('trash', 'Clear Local Sync Queue', 'Remove pending and rejected upload records', 'clearSyncQueue'));
+    }
+    items.push(separator('Tools'), actionItem('plug', 'Test Connection', `Check ${syncStatus.apiUrl}`, 'testConnection'), actionItem('info', 'View Sync Status', 'Show connection and queue details', 'viewSyncStatus'));
+    if (authenticated) {
+        items.push(actionItem('sign-out', 'Disconnect Extension', 'Revoke local token and stop uploads', 'disconnect'));
+    }
+    return items;
 }
-function buildControlItems(trackerStats, state) {
+function buildControlItems(trackerStats, state, includeReset = false) {
     if (!trackerStats.isRecording) {
         return [
             actionItem('play', 'Start Sprint', 'Begin a new tracked session', 'start'),
-            ...(state.session.id
+            ...(includeReset && state.session.id
                 ? [actionItem('trash', 'Clear Session Data', 'Remove the current session totals', 'reset')]
                 : []),
         ];
@@ -211,68 +232,116 @@ function buildControlItems(trackerStats, state) {
         actionItem('stop-circle', 'End Sprint', 'Keep this session as your latest summary', 'stop'),
     ];
 }
-async function showMetricDetail(metric, state, historyStore, record) {
-    const title = `Sprintly · ${state.session.isActive ? 'Current session' : 'Last session'}`;
-    let items;
-    if (metric === 'coding') {
-        const coding = getCodingTotals(state, record);
-        items = [
-            item('edit', 'Manual keystrokes', formatCompactDuration(coding.manualMs)),
-            // No provider-attribution integration exists yet, so AI time only shows
-            // when it was actually observed; it is never inferred from edit shape.
-            item('copilot', 'AI-assisted', coding.aiAssistedMs > 0
-                ? formatCompactDuration(coding.aiAssistedMs)
-                : 'Not observed'),
-            item('wand', 'Automation', coding.automationMs > 0
-                ? formatCompactDuration(coding.automationMs)
-                : 'Not observed'),
-            item('question', 'Unattributed bulk', `${formatCompactDuration(coding.unknownBulkMs)} · edits of unknown origin`),
+function buildSessionItems(trackerStats, state, summary) {
+    return [
+        separator(summary.scope),
+        item(statusIcon(summary.status), 'Status', summary.status),
+        item('clock', 'Elapsed time', summary.duration),
+        scoreItem('target', 'Focus score', summary.focusScore, 'Engaged coding time within the session'),
+        item('account', 'Developer style', summary.archetype, summary.metricSummary),
+        separator('Signals'),
+        item('git-compare', 'Context switches', String(summary.contextSwitches)),
+        scoreItem('beaker', 'Testing discipline', summary.testingDiscipline, 'Share of terminal work used for validation'),
+        scoreItem('rocket', 'Shipping activity', summary.shippingActivity, 'Successful runs and Git activity'),
+        scoreItem('sparkle', 'AI balance', summary.aiBalance, 'Explicitly attributed AI-assisted coding'),
+        separator('Actions'),
+        ...buildControlItems(trackerStats, state, true),
+        actionItem('globe', 'Open Sprintly report', 'View this sprint in your browser', 'viewWebsite'),
+    ];
+}
+function buildActivityItems(trackerStats, state, record) {
+    if (!state.session.id) {
+        return [
+            separator('Activity'),
+            item('circle-outline', 'No activity yet', 'Start a sprint to begin tracking'),
+            separator('Actions'),
+            actionItem('play', 'Start Sprint', 'Begin a new tracked session', 'start'),
         ];
     }
-    else if (metric === 'prompts') {
-        if (!(0, privacySettings_1.getPrivacySettings)().aiTrackingVisible) {
-            items = [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
-        }
-        else {
-            const prompts = record?.agentPrompts ?? state.agentPrompts;
-            items = [
-                item('copilot', 'Claude Code', String(prompts.claudeCode)),
-                item('terminal', 'Codex', String(prompts.codex)),
-                item('github', 'GitHub Copilot', String(prompts.githubCopilot)),
-            ];
-        }
+    const activity = getActivitySnapshot(trackerStats, record);
+    const categoryItems = Object.entries(activity.terminalCommandsByCategory)
+        .filter(([, count]) => count > 0)
+        .sort((left, right) => right[1] - left[1])
+        .map(([category, count]) => item('terminal', formatCategory(category), String(count)));
+    return [
+        separator('Editing'),
+        item('edit', 'Edits', String(activity.edits)),
+        item('list-ordered', 'Lines changed', String(activity.linesChanged), 'Estimate includes inserted and structurally removed lines'),
+        item('files', 'Files touched', String(activity.filesTouched)),
+        item('save', 'Saves', String(activity.fileSaves)),
+        item('git-compare', 'File switches', String(activity.fileSwitches)),
+        separator('Terminal'),
+        item('terminal', 'Commands', String(activity.terminalCommands)),
+        item('add', 'Terminal opens', String(activity.terminalOpens)),
+        ...(categoryItems.length ? categoryItems : [item('circle-outline', 'No command categories captured', '0')]),
+    ];
+}
+function buildCodingItems(state, record) {
+    const coding = getCodingTotals(state, record);
+    const total = coding.manualMs + coding.aiAssistedMs + coding.automationMs + coding.unknownBulkMs;
+    return [
+        separator('Coding time'),
+        item('clock', 'Tracked coding time', formatCompactDuration(total)),
+        codingItem('edit', 'Manual keystrokes', coding.manualMs, total, 'Direct typing observed by VS Code'),
+        codingItem('copilot', 'AI-assisted', coding.aiAssistedMs, total, 'Only explicitly attributed assistance'),
+        codingItem('wand', 'Automation', coding.automationMs, total, 'Only explicitly attributed automation'),
+        codingItem('question', 'Unattributed bulk', coding.unknownBulkMs, total, 'Bulk edits whose authoring source VS Code cannot identify'),
+    ];
+}
+function buildAgentItems(state, record) {
+    if (!(0, privacySettings_1.getPrivacySettings)().aiTrackingVisible) {
+        return [
+            separator('AI tools'),
+            item('eye-closed', 'AI insights are hidden', 'Enable “Show AI tracking” to view aggregate usage'),
+            separator('Actions'),
+            actionItem('settings-gear', 'Open Settings', 'Review AI tracking visibility', 'settings'),
+        ];
     }
-    else if (metric === 'failures') {
-        const failures = record?.buildFailures ?? state.buildFailures;
-        const categories = Object.entries(failures.byCategory)
-            .sort((left, right) => right[1] - left[1]);
-        items = categories.length
-            ? categories.map(([category, count]) => item('error', formatCategory(category), String(count)))
-            : [item('pass', 'No failed executions', '0')];
-    }
-    else if (metric === 'tokens') {
-        items = (0, privacySettings_1.getPrivacySettings)().aiTrackingVisible
-            ? buildTokenDetailItems(state, record)
-            : [item('eye-closed', 'AI usage hidden', 'Enable telemetry.showAiTracking to view it')];
-    }
-    else {
-        const history = historyStore?.getAggregates('all');
-        items = history
-            ? [
-                item('history', 'Completed sessions', String(history.sessions)),
-                item('clock', 'Total coding time', formatCompactDuration(history.codingTimeMs)),
-                item('pulse', 'Current streak', `${history.currentStreak} day${history.currentStreak === 1 ? '' : 's'}`),
-                item('star-full', 'Developer score', String(history.devScore), 'Version 1 deterministic score'),
-                item('trophy', 'Personal best', formatCompactDuration(history.personalRecords.longestSessionMs), 'Longest active session'),
-            ]
-            : [item('history', 'Local history unavailable')];
-    }
-    await vscode.window.showQuickPick(items, {
-        title,
-        placeHolder: metricTitle(metric),
-        matchOnDescription: false,
-        matchOnDetail: false,
-    });
+    const prompts = record?.agentPrompts ?? state.agentPrompts;
+    return [
+        separator('Prompts'),
+        item('copilot', 'Claude Code', plural(prompts.claudeCode, 'prompt')),
+        item('terminal', 'Codex', plural(prompts.codex, 'prompt')),
+        item('github', 'GitHub Copilot', plural(prompts.githubCopilot, 'prompt')),
+        separator('Token usage'),
+        ...buildTokenDetailItems(state, record),
+        separator('Privacy'),
+        item('shield', 'Prompt content', 'Never collected', 'Sprintly stores aggregate counts only'),
+    ];
+}
+function buildReliabilityItems(state, summary, record) {
+    const failures = record?.buildFailures ?? state.buildFailures;
+    const categories = Object.entries(failures.byCategory)
+        .filter(([, count]) => count > 0)
+        .sort((left, right) => right[1] - left[1])
+        .map(([category, count]) => item('error', formatCategory(category), String(count)));
+    return [
+        separator('Reliability'),
+        item(failures.total ? 'warning' : 'pass-filled', failures.total ? plural(failures.total, 'failed execution') : 'Clean run', failures.total ? `${plural(failures.recoveredFailures, 'recovery')}` : 'No failures captured'),
+        item('check-all', 'Successful runs', String(failures.successfulRuns ?? 0)),
+        scoreItem('refresh', 'Recovery rate', summary.recoveryRate, failures.total ? `${failures.recoveredFailures ?? 0} of ${failures.total} recovered in the same tool family` : 'No recovery needed'),
+        scoreItem('beaker', 'Testing discipline', summary.testingDiscipline, 'Build, test, and lint commands'),
+        item('flame', 'Longest failure streak', String(failures.maxFailureStreak ?? failures.failureStreak ?? 0)),
+        separator('Failure categories'),
+        ...(categories.length ? categories : [item('pass', 'No failure categories', '0')]),
+    ];
+}
+function buildHistoryItems(historyStore) {
+    const history = historyStore?.getAggregates('all');
+    if (!history)
+        return [separator('History'), item('history', 'Local history unavailable')];
+    return [
+        separator('All time'),
+        item('history', 'Completed sprints', String(history.sessions)),
+        item('clock', 'Total coding time', formatCompactDuration(history.codingTimeMs)),
+        item('pulse', 'Current streak', plural(history.currentStreak, 'day')),
+        item('calendar', 'Longest streak', plural(history.longestStreak, 'day')),
+        scoreItem('star-full', 'Developer score', history.devScore, 'Deterministic local score'),
+        scoreItem('target', 'Average focus', history.averageFocusScore, 'Across completed sprints'),
+        item('trophy', 'Personal best', formatCompactDuration(history.personalRecords.longestSessionMs), 'Longest active sprint'),
+        separator('Actions'),
+        actionItem('globe', 'Open Sprintly report', 'Explore your full history in the browser', 'viewWebsite'),
+    ];
 }
 function buildTokenDetailItems(state, record) {
     const tokenStats = record?.tokenStats ?? state.tokenStats;
@@ -321,28 +390,55 @@ function runPanelAction(action) {
     void vscode.commands.executeCommand(commands[action], ...args);
 }
 function separator(label) {
-    return { label, kind: vscode.QuickPickItemKind.Separator, alwaysShow: true };
+    return { label, kind: vscode.QuickPickItemKind.Separator };
 }
 function item(icon, label, description, detail) {
-    return { label: `$(${icon}) ${label}`, description, detail, alwaysShow: true };
+    return { label: `$(${icon}) ${label}`, description, detail };
 }
-function metricItem(icon, label, description, metric) {
-    return { ...item(icon, label, description), metric };
+function routeItem(icon, label, description, detail, view) {
+    const suffix = '$(chevron-right)';
+    return { ...item(icon, label, description ? `${description}  ${suffix}` : suffix, detail), view };
 }
 function actionItem(icon, label, detail, action) {
-    return { ...item(icon, label, undefined, detail), action };
+    return { ...item(icon, label, detail), action };
 }
-function panelPlaceholder(status) {
+function panelTitle(view) {
+    return view === 'main' ? '$(pulse) Sprintly' : `$(pulse) Sprintly · ${viewLabel(view)}`;
+}
+function panelPlaceholder(view, status) {
+    if (view !== 'main')
+        return `Search ${viewLabel(view).toLowerCase()}`;
     if (status === 'In progress') {
-        return 'Sprint in progress · Select a metric or control';
+        return 'Search current sprint metrics and actions';
     }
     if (status === 'Paused') {
-        return 'Sprint paused · Resume when ready';
+        return 'Sprint paused · Search metrics and actions';
     }
     if (status === 'Completed') {
-        return 'Review your latest sprint or start another';
+        return 'Search the latest sprint and workspace actions';
     }
-    return 'Start a sprint to begin tracking';
+    return 'Search Sprintly metrics and actions';
+}
+function panelButtons(view) {
+    return [
+        ...(view === 'main' ? [] : [vscode.QuickInputButtons.Back]),
+        { iconPath: new vscode.ThemeIcon('refresh'), tooltip: 'Refresh' },
+        { iconPath: new vscode.ThemeIcon('globe'), tooltip: 'Open Sprintly report' },
+        { iconPath: new vscode.ThemeIcon('settings-gear'), tooltip: 'Open Settings' },
+    ];
+}
+function viewLabel(view) {
+    const labels = {
+        main: 'Overview',
+        session: 'Session',
+        activity: 'Activity',
+        coding: 'Coding mix',
+        agents: 'AI tools',
+        reliability: 'Reliability',
+        history: 'History',
+        sync: 'Website & sync',
+    };
+    return labels[view];
 }
 function statusIcon(status) {
     if (status === 'In progress')
@@ -353,15 +449,125 @@ function statusIcon(status) {
         return 'history';
     return 'circle-outline';
 }
-function metricTitle(metric) {
-    const titles = {
-        coding: 'Coding split',
-        prompts: 'Agent prompts',
-        failures: 'Build failures',
-        tokens: 'Token usage',
-        history: 'Local session history',
+function sessionRowLabel(summary) {
+    if (summary.scope === 'Current session')
+        return 'Current sprint';
+    if (summary.scope === 'Last session')
+        return 'Last sprint';
+    return 'Ready to sprint';
+}
+function scoreItem(icon, label, score, detail) {
+    const value = safePercent(score);
+    return item(icon, label, `${value} / 100`, `${makeProgressBar(value)}  ${detail}`);
+}
+function codingItem(icon, label, durationMs, totalMs, detail) {
+    const share = totalMs > 0 ? safePercent((durationMs / totalMs) * 100) : 0;
+    const value = durationMs > 0 ? formatCompactDuration(durationMs) : 'Not observed';
+    return item(icon, label, `${value} · ${share}%`, `${makeProgressBar(share)}  ${detail}`);
+}
+function makeProgressBar(value, length = 10) {
+    const safeValue = safePercent(value);
+    const safeLength = Math.max(1, Math.floor(length));
+    const filled = Math.round((safeValue / 100) * safeLength);
+    return '█'.repeat(filled) + '░'.repeat(safeLength - filled);
+}
+function safePercent(value) {
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+}
+function plural(value, noun) {
+    return `${value} ${noun}${value === 1 ? '' : 's'}`;
+}
+function describeActivityOverview(activity, hasSession) {
+    if (!hasSession)
+        return 'No session data';
+    return `${plural(activity.edits, 'edit')} · ${plural(activity.filesTouched, 'file')} · ${plural(activity.linesChanged, 'line')}`;
+}
+function describeCodingOverview(coding) {
+    const entries = [
+        ['Manual', coding.manualMs],
+        ['AI-assisted', coding.aiAssistedMs],
+        ['Automation', coding.automationMs],
+        ['Unattributed', coding.unknownBulkMs],
+    ];
+    const total = entries.reduce((sum, [, value]) => sum + value, 0);
+    if (total <= 0)
+        return 'No engaged coding time yet';
+    const dominant = entries.reduce((best, current) => current[1] > best[1] ? current : best);
+    return `${dominant[0]} ${safePercent((dominant[1] / total) * 100)}% · ${formatCompactDuration(total)} tracked`;
+}
+function describeAgentOverview(state, summary, record) {
+    if (!state.session.id)
+        return 'No session data';
+    if (!(0, privacySettings_1.getPrivacySettings)().aiTrackingVisible)
+        return 'Hidden in privacy settings';
+    const prompts = record?.agentPrompts ?? state.agentPrompts;
+    const total = prompts.claudeCode + prompts.codex + prompts.githubCopilot;
+    const tokens = summary.tokenUsage === 'No token usage captured' ? 'tokens unavailable' : summary.tokenUsage;
+    return `${plural(total, 'prompt')} · ${tokens}`;
+}
+function describeReliabilityOverview(failures, hasSession) {
+    if (!hasSession)
+        return 'No session data';
+    if (!failures.total)
+        return `Clean run · ${plural(failures.successfulRuns ?? 0, 'successful execution')}`;
+    return `${plural(failures.total, 'failure')} · ${plural(failures.recoveredFailures ?? 0, 'recovery')}`;
+}
+function describeConnectionOverview(status) {
+    const rejected = status.rejectedCount ?? status.failedCount;
+    let connection = 'Disconnected';
+    if (status.connectionStatus === 'connected' && !status.pairingRequired) {
+        connection = status.localOnly ? 'Connected · Local only' : `Connected · ${uploadModeLabel(status)}`;
+    }
+    else if (status.connectionStatus === 'revoked') {
+        connection = 'Reconnect required';
+    }
+    else if (status.pairingRequired) {
+        connection = 'Pairing required';
+    }
+    const queued = status.pendingCount + rejected;
+    return queued ? `${connection} · ${plural(queued, 'queued item')}` : connection;
+}
+function describeConnectionState(status) {
+    if (status.syncDisabled)
+        return 'Website sync disabled by account settings';
+    if (status.syncEnabled === false)
+        return 'Extension sync disabled';
+    if (status.pairingRequired)
+        return 'Pair this extension to authorize uploads';
+    return status.connectionStatus === 'connected' ? 'Connection healthy' : 'Reconnect to use website sync';
+}
+function uploadModeLabel(status) {
+    if (status.syncEnabled === false || status.syncDisabled || status.syncPreference === 'never')
+        return 'Local only';
+    if (status.syncPreference === 'selected')
+        return 'Selected sprints';
+    if (status.syncPreference === 'completed')
+        return 'Completed sprints';
+    return 'Leaderboard aggregates';
+}
+function getActivitySnapshot(trackerStats, record) {
+    if (!trackerStats.isRecording && record) {
+        return {
+            edits: record.edits,
+            linesChanged: record.linesChanged,
+            fileSaves: record.fileSaves,
+            fileSwitches: record.fileSwitches,
+            filesTouched: record.filesTouched,
+            terminalOpens: record.terminalOpens,
+            terminalCommands: record.terminalCommands,
+            terminalCommandsByCategory: { ...record.terminalCommandsByCategory },
+        };
+    }
+    return {
+        edits: trackerStats.fileEdits,
+        linesChanged: trackerStats.linesChanged,
+        fileSaves: trackerStats.fileSaves,
+        fileSwitches: trackerStats.fileSwitches,
+        filesTouched: trackerStats.activeFiles.size,
+        terminalOpens: trackerStats.terminalOpens ?? 0,
+        terminalCommands: trackerStats.terminalCommands ?? 0,
+        terminalCommandsByCategory: { ...(trackerStats.terminalCommandsByCategory ?? {}) },
     };
-    return titles[metric];
 }
 function describeAgentPrompts(state, record) {
     const prompts = record?.agentPrompts ?? state.agentPrompts;

@@ -80,13 +80,13 @@ function buildTooltip(summary) {
 }
 function buildTooltipFingerprint(summary) {
     return JSON.stringify({
-        ...summary,
-        // The status-bar timer changes every second. Excluding its active duration
-        // and derived live metrics prevents VS Code from dismissing and recreating
-        // an open hover tooltip.
+        scope: summary.scope,
+        status: summary.status,
         duration: summary.status === 'In progress' ? 'live' : summary.duration,
-        archetype: summary.status === 'In progress' ? 'live' : summary.archetype,
-        metricSummary: summary.status === 'In progress' ? 'live' : summary.metricSummary,
+        codingSplit: summary.codingSplit,
+        promptUsage: summary.promptUsage,
+        tokenUsage: summary.tokenUsage,
+        buildFailures: summary.buildFailures,
     });
 }
 //# sourceMappingURL=statusBar.js.map

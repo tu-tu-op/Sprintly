@@ -10,7 +10,12 @@ Module._load = function loadWithVscodeStub(request, parent, isMain) {
   return originalLoad.call(this, request, parent, isMain);
 };
 
-const { buildPanelItems, buildSessionPanelSummary } = require('../out/panels/sessionQuickPick');
+const {
+  buildPanelItems,
+  buildSessionPanelSummary,
+  buildWebsiteSyncItems,
+  makeProgressBar,
+} = require('../out/panels/sessionQuickPick');
 Module._load = originalLoad;
 
 function trackerStats(overrides = {}) {
@@ -163,29 +168,46 @@ test('panel summary hydrates from the finalized record after a reload', () => {
   assert.match(summary.buildFailures, /^2 total · Type Error 2/);
 });
 
-test('Quick Panel includes report redirect and website sync actions', () => {
+test('Quick Panel keeps a compact Copilot-style overview with sync actions in a drill-down', () => {
   const stats = trackerStats();
   const state = sessionState();
+  const syncStatus = {
+    connectionStatus: 'disconnected', apiUrl: 'http://localhost:3000', environment: 'development',
+    syncPreference: 'never', localOnly: true, leaderboardOptIn: false,
+    pendingCount: 2, failedCount: 1, lastSuccessfulSync: null, lastSyncError: null,
+    syncEnabled: false, syncDisabled: false, rejectedCount: 1, pairingRequired: false,
+  };
   const items = buildPanelItems(
     {}, stats, state,
     {
       scope: 'No session', status: 'Ready', duration: '00:00', codingSplit: 'Manual 0%',
       archetype: 'Steady Builder', metricSummary: 'Focus 0', promptUsage: '0', tokenUsage: '0', buildFailures: '0',
+      focusScore: 0, contextSwitches: 0, shippingActivity: 0, testingDiscipline: 0,
+      aiBalance: 0, recoveryRate: 100,
     },
     undefined,
     null,
-    {
-      connectionStatus: 'disconnected', apiUrl: 'http://localhost:3000', environment: 'development',
-      syncPreference: 'never', localOnly: true, leaderboardOptIn: false,
-      pendingCount: 2, failedCount: 1, lastSuccessfulSync: null, lastSyncError: null,
-      syncEnabled: false, syncDisabled: false, rejectedCount: 1, pairingRequired: false,
-    },
+    syncStatus,
   );
   const labels = items.map((item) => item.label).join('\n');
-  assert.match(labels, /View Session Report/);
-  assert.match(labels, /Sync Pending Sessions/);
-  assert.match(labels, /Website disconnected/);
-  assert.match(labels, /Connect Automatically/);
-  assert.match(labels, /Connect Manually/);
-  assert.ok(labels.indexOf('Connect Automatically') < labels.indexOf('AGENT USAGE'));
+  assert.match(labels, /Ready to sprint/);
+  assert.match(labels, /Activity/);
+  assert.match(labels, /Coding mix/);
+  assert.match(labels, /AI tools/);
+  assert.match(labels, /Reliability/);
+  assert.match(labels, /Website & sync/);
+  assert.match(labels, /Open Sprintly report/);
+  assert.doesNotMatch(labels, /Connect Automatically/);
+
+  const syncLabels = buildWebsiteSyncItems(syncStatus).map((item) => item.label).join('\n');
+  assert.match(syncLabels, /Pairing required/);
+  assert.match(syncLabels, /Connect Automatically/);
+  assert.match(syncLabels, /Connect Manually/);
+  assert.match(syncLabels, /Sync Pending Sessions/);
+});
+
+test('Quick Panel progress bars are bounded and visually stable', () => {
+  assert.equal(makeProgressBar(50), '█████░░░░░');
+  assert.equal(makeProgressBar(-20), '░░░░░░░░░░');
+  assert.equal(makeProgressBar(120), '██████████');
 });
