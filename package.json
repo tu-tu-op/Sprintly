@@ -1,8 +1,13 @@
 {
   "name": "sprintly",
+  "publisher": "tu-tu-op",
   "displayName": "DevStrava / Sprintly",
   "description": "Strava for developers — track your coding sessions.",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tu-tu-op/Sprintly.git"
+  },
   "engines": { "vscode": "^1.93.0" },
   "categories": ["Other"],
   "activationEvents": ["onStartupFinished", "onUri"],

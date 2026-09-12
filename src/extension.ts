@@ -29,6 +29,10 @@ import {
 } from './panels/sprintlyPanels';
 
 export function activate(context: vscode.ExtensionContext): void {
+  const connectionLog = vscode.window.createOutputChannel('Sprintly', { log: true });
+  connectionLog.info(
+    `Activating ${context.extension.id} v${String(context.extension.packageJSON.version)} from ${context.extensionPath}`,
+  );
   const tracker = new SessionTracker();
   // Session history and its current draft are workspace-owned. This prevents
   // opening another repository from exposing or merging private activity.
@@ -59,6 +63,7 @@ export function activate(context: vscode.ExtensionContext): void {
     historyStore,
     handoff,
     syncOutbox,
+    connectionLog,
   );
   // Recover an interrupted session from the last durable observation so the
   // finalized draft and DailyState boundaries agree (audit Bug #2).
@@ -77,28 +82,44 @@ export function activate(context: vscode.ExtensionContext): void {
     syncService,
   );
 
-  // The website's “Open VS Code” button uses vscode://sprintly/connect. This
+  // The website's “Open VS Code” button targets publisher.name from the
+  // extension manifest. VS Code routes that URI to this handler in the window
+  // where Sprintly is installed, including remote extension hosts.
   // handler completes pairing automatically without putting a device token in
   // the URL; the short-lived code is exchanged directly with the website API.
   context.subscriptions.push(
     vscode.window.registerUriHandler({
       handleUri: (uri) => {
-        const intent = parseSprintlyPairingIntent(uri);
-        if (!intent) return;
+        connectionLog.info('Pairing URI received', {
+          scheme: uri.scheme,
+          authority: uri.authority,
+          path: uri.path,
+        });
+        const intent = parseSprintlyPairingIntent(uri, context.extension.id);
+        if (!intent) {
+          connectionLog.warn('Pairing URI rejected before code exchange');
+          return;
+        }
 
         const configuredApi = getSprintlyConnectionSettings().apiUrl;
         if (intent.apiUrl && !sameApiOrigin(intent.apiUrl, configuredApi)) {
+          connectionLog.warn('Pairing URI API origin does not match sprintly.apiUrl');
           void vscode.window.showWarningMessage(
             'The pairing link targets a different Sprintly API. Set sprintly.apiUrl to that website origin, then try again.',
           );
           return;
         }
 
+        connectionLog.info('Exchanging one-time pairing code');
         void syncService.connectWithPairingCode(intent.code)
           .then(() => {
+            connectionLog.info('Automatic pairing completed');
             void vscode.window.showInformationMessage('Sprintly extension connected automatically.');
           })
           .catch((error: unknown) => {
+            connectionLog.error(
+              `Automatic pairing failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+            );
             void vscode.window.showErrorMessage(
               `Sprintly automatic connection failed: ${error instanceof Error ? error.message : 'pairing could not be completed.'}`,
             );
@@ -106,6 +127,7 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     }),
   );
+  connectionLog.info(`URI handler registered for ${context.extension.id}`);
 
   // Privacy boundary: the agent-log watcher is constructed dormant. It only
   // discovers, reads, watches, or persists cursor state after the user

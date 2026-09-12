@@ -1,8 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.SPRINTLY_EXTENSION_ID = void 0;
 exports.parseSprintlyPairingIntent = parseSprintlyPairingIntent;
-function parseSprintlyPairingIntent(uri) {
-    if (uri.scheme !== 'vscode' || uri.authority !== 'sprintly' || uri.path !== '/connect') {
+exports.SPRINTLY_EXTENSION_ID = 'tu-tu-op.sprintly';
+function parseSprintlyPairingIntent(uri, extensionId = exports.SPRINTLY_EXTENSION_ID) {
+    const isVSCodeScheme = uri.scheme === 'vscode' || uri.scheme === 'vscode-insiders';
+    if (!isVSCodeScheme
+        || uri.authority.toLowerCase() !== extensionId.toLowerCase()
+        || uri.path !== '/connect') {
         return null;
     }
     const parameters = new URLSearchParams(uri.query);

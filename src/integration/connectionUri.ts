@@ -15,10 +15,18 @@ export interface SprintlyPairingIntent {
   apiUrl?: string;
 }
 
+export const SPRINTLY_EXTENSION_ID = 'tu-tu-op.sprintly';
+
 export function parseSprintlyPairingIntent(
   uri: SprintlyConnectionUri,
+  extensionId = SPRINTLY_EXTENSION_ID,
 ): SprintlyPairingIntent | null {
-  if (uri.scheme !== 'vscode' || uri.authority !== 'sprintly' || uri.path !== '/connect') {
+  const isVSCodeScheme = uri.scheme === 'vscode' || uri.scheme === 'vscode-insiders';
+  if (
+    !isVSCodeScheme
+    || uri.authority.toLowerCase() !== extensionId.toLowerCase()
+    || uri.path !== '/connect'
+  ) {
     return null;
   }
 

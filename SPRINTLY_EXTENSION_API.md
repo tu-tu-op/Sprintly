@@ -32,8 +32,10 @@ Relevant settings are:
 The Quick Panel exposes both connection paths near the top of the panel:
 
 - `Connect Automatically` opens the configured Sprintly Settings page. The
-  website's `Open VS Code` button returns a `vscode://sprintly/connect` link;
-  the extension exchanges that short-lived code automatically.
+  website's `Open VS Code` button returns a
+  `vscode://tu-tu-op.sprintly/connect` link. Its authority is the extension ID
+  from `publisher.name`; VS Code routes it to the installed extension's URI
+  handler and the extension exchanges that short-lived code automatically.
 - `Connect Manually` accepts the one-time code copied from Sprintly Settings.
 
 Automatic pairing uses only the code and website API origin in the deep link.
