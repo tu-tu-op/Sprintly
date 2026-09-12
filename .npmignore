@@ -3,16 +3,8 @@ node_modules/
 .vscode/
 src/
 test/
-extension/
 website/
 *.log
-sprintly_codex_prompts_first_draft.md
-sprintly-v2-workplan.md
-CLAUDE*.md
-UI-prompt.md
-extension-UI.md
-Complete audit 1.md
-COMMANDS.md
-DEVSTRAVA_*.md
-statusbar-mini-panel.md
 .gitignore
+DEVSTRAVA_DATA_CONTRACT.md
+SPRINTLY_EXTENSION_API.md
