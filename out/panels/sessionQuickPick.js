@@ -178,7 +178,9 @@ function buildPanelItems(_tracker, trackerStats, state, summary, historyStore, r
             items.push(separator('Workspace'));
         items.push(routeItem('cloud', 'Website & sync', describeConnectionOverview(syncStatus), undefined, 'sync'));
     }
-    items.push(separator('Actions'), ...buildControlItems(trackerStats, state), actionItem('globe', 'Open Sprintly report', 'View the detailed report in your browser', 'viewWebsite'), actionItem('settings-gear', 'Open Settings', 'Tracking, privacy, and sync preferences', 'settings'));
+    items.push(separator('Actions'), ...buildControlItems(trackerStats, state), ...(syncStatus && (syncStatus.connectionStatus !== 'connected' || syncStatus.pairingRequired)
+        ? [actionItem('plug', 'Connect', 'Open Sprintly Settings to connect and sync exported session data', 'connectAutomatic')]
+        : []), actionItem('globe', 'Open Sprintly report', 'View the detailed report in your browser', 'viewWebsite'), actionItem('settings-gear', 'Open Settings', 'Tracking, privacy, and sync preferences', 'settings'));
     return items;
 }
 function buildWebsiteSyncItems(syncStatus, record) {

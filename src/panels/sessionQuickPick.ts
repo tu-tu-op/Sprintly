@@ -304,6 +304,9 @@ export function buildPanelItems(
   items.push(
     separator('Actions'),
     ...buildControlItems(trackerStats, state),
+    ...(syncStatus && (syncStatus.connectionStatus !== 'connected' || syncStatus.pairingRequired)
+      ? [actionItem('plug', 'Connect', 'Open Sprintly Settings to connect and sync exported session data', 'connectAutomatic')]
+      : []),
     actionItem('globe', 'Open Sprintly report', 'View the detailed report in your browser', 'viewWebsite'),
     actionItem('settings-gear', 'Open Settings', 'Tracking, privacy, and sync preferences', 'settings'),
   );

@@ -29,7 +29,9 @@ Relevant settings are:
   controls. Prompt text, command text, terminal output, paths, and source code
   are never stored in a session payload.
 
-The Quick Panel exposes both connection paths near the top of the panel:
+When pairing is required, the Quick Panel overview shows `Connect`. It opens
+the configured Sprintly Settings page and starts the automatic browser
+handoff. The `Website & sync` view also exposes both connection paths:
 
 - `Connect Automatically` opens the configured Sprintly Settings page. The
   website's `Open VS Code` button returns a

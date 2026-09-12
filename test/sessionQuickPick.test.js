@@ -168,7 +168,7 @@ test('panel summary hydrates from the finalized record after a reload', () => {
   assert.match(summary.buildFailures, /^2 total · Type Error 2/);
 });
 
-test('Quick Panel keeps a compact Copilot-style overview with sync actions in a drill-down', () => {
+test('Quick Panel shows Connect on the overview and keeps detailed sync actions in a drill-down', () => {
   const stats = trackerStats();
   const state = sessionState();
   const syncStatus = {
@@ -196,6 +196,7 @@ test('Quick Panel keeps a compact Copilot-style overview with sync actions in a 
   assert.match(labels, /AI tools/);
   assert.match(labels, /Reliability/);
   assert.match(labels, /Website & sync/);
+  assert.equal(items.find((item) => item.label === '$(plug) Connect')?.action, 'connectAutomatic');
   assert.match(labels, /Open Sprintly report/);
   assert.doesNotMatch(labels, /Connect Automatically/);
 
